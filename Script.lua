@@ -1,9 +1,11 @@
+print(1+1)
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
+local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 
 local ToggleKey = Enum.KeyCode.F
@@ -68,6 +70,9 @@ local ESPToggle = MainTab:CreateToggle({
          if espData.Instance then
             espData.Instance.Adornee = ESPEnabled and targetObject or nil
          end
+         if espData.DistanceLabel then
+            espData.DistanceLabel.Enabled = ESPEnabled and ShowDistance
+         end
       end
    end,
 })
@@ -78,6 +83,11 @@ local DistanceToggle = MainTab:CreateToggle({
    Flag = "ShowDistance",
    Callback = function(Value)
       ShowDistance = Value
+      for targetObject, espData in pairs(ESPInstances) do
+         if espData.DistanceLabel then
+            espData.DistanceLabel.Enabled = ESPEnabled and Value
+         end
+      end
    end,
 })
 
@@ -238,7 +248,13 @@ local GitHubButton = SettingsTab:CreateButton({
    end,
 })
 
-local function CreateESP(targetObject, color)
+local function CalculateDistanceFromCamera(targetPosition)
+    local camera = Workspace.CurrentCamera
+    if not camera then return 0 end
+    return math.floor((targetPosition - camera.CFrame.Position).Magnitude)
+end
+
+local function CreateESP(targetObject, color, isHull)
     if ESPInstances[targetObject] then
         return ESPInstances[targetObject]
     end
@@ -252,13 +268,68 @@ local function CreateESP(targetObject, color)
     highlight.Adornee = targetObject
     highlight.Parent = ESPFolder
     
+    local distanceBillboard = nil
+    local distanceLabel = nil
+    
+    if isHull then
+        distanceBillboard = Instance.new("BillboardGui")
+        distanceBillboard.Name = "DistanceDisplay"
+        distanceBillboard.Adornee = targetObject
+        distanceBillboard.Size = UDim2.new(0, 200, 0, 50)
+        distanceBillboard.StudsOffset = Vector3.new(0, -3, 0) 
+        distanceBillboard.AlwaysOnTop = true
+        distanceBillboard.Enabled = ESPEnabled and ShowDistance
+        distanceBillboard.Parent = ESPFolder
+        
+        distanceLabel = Instance.new("TextLabel")
+        distanceLabel.Name = "DistanceText"
+        distanceLabel.BackgroundTransparency = 1
+        distanceLabel.Size = UDim2.new(1, 0, 1, 0)
+        distanceLabel.Font = Enum.Font.SourceSansBold
+        distanceLabel.TextSize = 18
+        distanceLabel.TextColor3 = color
+        distanceLabel.TextStrokeTransparency = 0
+        distanceLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+        distanceLabel.Text = "0 studs"
+        distanceLabel.Parent = distanceBillboard
+    end
+    
     ESPInstances[targetObject] = {
         Type = "highlight",
         Instance = highlight,
+        DistanceLabel = distanceLabel,
+        DistanceBillboard = distanceBillboard,
         Target = targetObject,
-        Color = color
+        Color = color,
+        IsHull = isHull
     }
     return ESPInstances[targetObject]
+end
+
+local function UpdateDistanceLabels()
+    local camera = Workspace.CurrentCamera
+    if not camera then return end
+    
+    local cameraPosition = camera.CFrame.Position
+    
+    for targetObject, espData in pairs(ESPInstances) do
+        if targetObject and targetObject:IsDescendantOf(workspace) then
+            local targetPosition = targetObject:GetPivot().Position
+            local distance = math.floor((targetPosition - cameraPosition).Magnitude)
+            
+            if espData.IsHull and espData.DistanceLabel then
+                espData.DistanceLabel.Text = tostring(distance) .. " studs"
+            end
+            
+            local shouldBeVisible = distance <= MaxDistance
+            if espData.Instance then
+                espData.Instance.Adornee = ESPEnabled and shouldBeVisible and targetObject or nil
+            end
+            if espData.DistanceBillboard then
+                espData.DistanceBillboard.Enabled = ESPEnabled and ShowDistance and shouldBeVisible and espData.IsHull
+            end
+        end
+    end
 end
 
 local function CleanupESP()
@@ -267,9 +338,20 @@ local function CleanupESP()
             if espData.Instance then
                 espData.Instance:Destroy()
             end
+            if espData.DistanceBillboard then
+                espData.DistanceBillboard:Destroy()
+            end
             ESPInstances[targetObject] = nil
         elseif espData.Instance then
-            espData.Instance.Adornee = ESPEnabled and targetObject or nil
+            local camera = Workspace.CurrentCamera
+            if camera then
+                local distance = CalculateDistanceFromCamera(targetObject:GetPivot().Position)
+                local shouldBeVisible = distance <= MaxDistance
+                espData.Instance.Adornee = ESPEnabled and shouldBeVisible and targetObject or nil
+                if espData.DistanceBillboard then
+                    espData.DistanceBillboard.Enabled = ESPEnabled and ShowDistance and shouldBeVisible and espData.IsHull
+                end
+            end
         end
     end
 end
@@ -280,7 +362,7 @@ local function ProcessChassis(chassis)
         if hull then
             for _, object in ipairs(hull:GetChildren()) do
                 if object:IsA("Model") then
-                    CreateESP(object, HullColor)
+                    CreateESP(object, HullColor, true) 
                     break
                 end
             end
@@ -289,7 +371,7 @@ local function ProcessChassis(chassis)
         if turret then
             for _, object in ipairs(turret:GetChildren()) do
                 if object:IsA("Model") then
-                    CreateESP(object, TurretColor)
+                    CreateESP(object, TurretColor, false) 
                     break
                 end
             end
@@ -311,7 +393,20 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         ESPEnabled = not ESPEnabled
         for targetObject, espData in pairs(ESPInstances) do
             if espData.Instance then
-                espData.Instance.Adornee = ESPEnabled and targetObject or nil
+                local camera = Workspace.CurrentCamera
+                if camera then
+                    local distance = CalculateDistanceFromCamera(targetObject:GetPivot().Position)
+                    local shouldBeVisible = distance <= MaxDistance
+                    espData.Instance.Adornee = ESPEnabled and shouldBeVisible and targetObject or nil
+                end
+            end
+            if espData.DistanceBillboard then
+                local camera = Workspace.CurrentCamera
+                if camera then
+                    local distance = CalculateDistanceFromCamera(targetObject:GetPivot().Position)
+                    local shouldBeVisible = distance <= MaxDistance
+                    espData.DistanceBillboard.Enabled = ESPEnabled and ShowDistance and shouldBeVisible and espData.IsHull
+                end
             end
         end
     end
@@ -328,6 +423,8 @@ RunService.RenderStepped:Connect(function(deltaTime)
         TimeSinceLastCleanup = 0
         CleanupESP()
     end
+    
+    UpdateDistanceLabels()
 end)
 
 ScanVehicles()
