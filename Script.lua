@@ -290,7 +290,7 @@ local function CreateESP(targetObject, color, isHull)
         distanceLabel.TextColor3 = color
         distanceLabel.TextStrokeTransparency = 0
         distanceLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-        distanceLabel.Text = "0 studs"
+        distanceLabel.Text = "0 m"
         distanceLabel.Parent = distanceBillboard
     end
     
@@ -318,7 +318,8 @@ local function UpdateDistanceLabels()
             local distance = math.floor((targetPosition - cameraPosition).Magnitude)
             
             if espData.IsHull and espData.DistanceLabel then
-                espData.DistanceLabel.Text = tostring(distance) .. " studs"
+                local distanceInMeters = math.floor(distance / 3)
+                espData.DistanceLabel.Text = tostring(distanceInMeters) .. " m"
             end
             
             local shouldBeVisible = distance <= MaxDistance
