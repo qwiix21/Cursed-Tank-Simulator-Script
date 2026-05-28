@@ -9,7 +9,7 @@ local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 
 local ToggleKey = Enum.KeyCode.F
-local FlyKey = Enum.KeyCode.G
+local FlyKey = Enum.KeyCode.M
 
 local VehicleScanInterval = 0.5
 local CleanupInterval = 2
@@ -313,7 +313,7 @@ FlyTab:CreateSlider({
 FlyTab:CreateSection("Keybind")
 
 FlyTab:CreateKeybind({
-    Name = "Toggle Fly Key", CurrentKeybind = "G", HoldToInteract = false, Flag = "FlyKeyFlag",
+    Name = "Toggle Fly Key", CurrentKeybind = "M", HoldToInteract = false, Flag = "FlyKeyFlag",
     Callback = function(Value)
         isRebinding = true
         lastRebindTime = tick()
