@@ -35,7 +35,7 @@ MarkScreenGui.ResetOnSpawn = false
 MarkScreenGui.Parent = CoreGui
 
 local ESPEnabled = true
-local EnableMark = true
+local EnableMark = false
 local EnableFill = true
 local EnableOutline = true
 local TimeSinceLastVehicleScan = 0
