@@ -6,6 +6,7 @@ local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
 
 local ToggleKey = Enum.KeyCode.F
@@ -35,9 +36,11 @@ MarkScreenGui.ResetOnSpawn = false
 MarkScreenGui.Parent = CoreGui
 
 local ESPEnabled = true
+local TeamCheckEnabled = false
 local EnableMark = false
 local EnableFill = true
 local EnableOutline = true
+local RemoveFogEnabled = false
 local TimeSinceLastVehicleScan = 0
 local TimeSinceLastCleanup = 0
 local ESPInstances = {}
@@ -99,10 +102,11 @@ end
 local function startFly()
     if flying then return end
     initFlyRoot()
-    if not flyRoot then return end
     flying = true
-    bv.Parent = flyRoot
-    bg.Parent = flyRoot
+    if flyRoot then
+        bv.Parent = flyRoot
+        bg.Parent = flyRoot
+    end
 end
 
 local function stopFly()
@@ -115,20 +119,42 @@ end
 
 local function UpdateESPInstance(espData)
     if not espData.Instance then return end
+    
+    local showFill = (EnableFill == true)
+    local showOutline = (EnableOutline == true)
+    local showESP = (ESPEnabled == true)
+    
+    espData.Instance.FillColor = showFill and espData.Color or Color3.new(0,0,0)
+    espData.Instance.FillTransparency = showFill and FillTransparency or 1
+    espData.Instance.OutlineColor = showOutline and espData.Color or Color3.new(0,0,0)
+    espData.Instance.OutlineTransparency= showOutline and OutlineTransparency or 1
+    espData.Instance.Enabled = showESP
 
-    espData.Instance.FillColor = EnableFill    and espData.Color    or Color3.new(0,0,0)
-    espData.Instance.FillTransparency = EnableFill    and FillTransparency or 1
-    espData.Instance.OutlineColor = EnableOutline and espData.Color    or Color3.new(0,0,0)
-    espData.Instance.OutlineTransparency = EnableOutline and OutlineTransparency or 1
-    espData.Instance.Adornee = ESPEnabled and espData.Target or nil
     if espData.DistanceBillboard then
-        espData.DistanceBillboard.Enabled = ESPEnabled and ShowDistance and espData.IsHull
+        espData.DistanceBillboard.Enabled = showESP and (ShowDistance == true) and (espData.IsHull == true)
     end
 end
 
 local function UpdateAllESPInstances()
     for _, espData in pairs(ESPInstances) do
         UpdateESPInstance(espData)
+    end
+end
+
+local function ClearAllESP()
+    for obj, espData in pairs(ESPInstances) do
+        if espData.Instance then espData.Instance:Destroy() end
+        if espData.DistanceBillboard then espData.DistanceBillboard:Destroy() end
+        if espData.MarkBillboard then espData.MarkBillboard:Destroy() end
+    end
+    ESPInstances = {}
+end
+
+local function ScanVehicles()
+    local vehiclesFolder = workspace:FindFirstChild("Vehicles")
+    if not vehiclesFolder then return end
+    for _, chassis in ipairs(vehiclesFolder:GetChildren()) do
+        ProcessChassis(chassis)
     end
 end
 
@@ -149,9 +175,10 @@ Rayfield:Notify({
     Image = 4483362458,
 })
 
-local MainTab     = Window:CreateTab("Main",     4483362458)
-local VisualTab   = Window:CreateTab("Visual",   4483362458)
-local FlyTab      = Window:CreateTab("Fly",      4483362458)
+local MainTab = Window:CreateTab("Main", 4483362458)
+local VisualTab = Window:CreateTab("Visual", 4483362458)
+local WeaponTab = Window:CreateTab("Weapon", 4483362458)
+local FlyTab = Window:CreateTab("Fly", 4483362458)
 local SettingsTab = Window:CreateTab("Settings", 4483362458)
 
 
@@ -167,6 +194,17 @@ MainTab:CreateToggle({
 })
 
 MainTab:CreateToggle({
+    Name = "Team Check (enemies only)", CurrentValue = false, Flag = "TeamCheckFlag",
+    Callback = function(Value)
+        TeamCheckEnabled = Value
+        task.defer(function()
+            ClearAllESP()
+            ScanVehicles()
+        end)
+    end,
+})
+
+MainTab:CreateToggle({
     Name = "Show Distance", CurrentValue = false, Flag = "ShowDistanceFlag",
     Callback = function(Value)
         ShowDistance = Value
@@ -177,14 +215,13 @@ MainTab:CreateToggle({
 MainTab:CreateSection("Mark Settings")
 
 MainTab:CreateToggle({
-    Name = "Enable Mark", CurrentValue = true, Flag = "EnableMarkFlag",
+    Name = "Enable Mark", CurrentValue = false, Flag = "EnableMarkFlag",
     Callback = function(Value)
         EnableMark = Value
-        if not Value then
-            for _, espData in pairs(ESPInstances) do
-                if espData.MarkBillboard and espData.IsHull then
-                    espData.MarkBillboard.Visible = false
-                end
+        for _, espData in pairs(ESPInstances) do
+            if espData.MarkBillboard and espData.IsHull then
+                espData.MarkBillboard.Visible = false
+                espData.MarkBillboard.Position = UDim2.new(0, 0, 0, 0)
             end
         end
     end,
@@ -238,6 +275,23 @@ MainTab:CreateSlider({
     end,
 })
 
+
+VisualTab:CreateSection("Fog")
+
+VisualTab:CreateToggle({
+    Name = "Remove Fog", CurrentValue = false, Flag = "RemoveFogFlag",
+    Callback = function(Value)
+        RemoveFogEnabled = Value
+        for _, child in ipairs(Lighting:GetChildren()) do
+            if child:IsA("Atmosphere") then
+                if Value then
+                    child.Density = 0
+                    child.Haze = 0
+                end
+            end
+        end
+    end,
+})
 
 VisualTab:CreateSection("Colors")
 
@@ -377,20 +431,31 @@ do
 end
 
 
+local function GetModelPosition(model)
+    if model:IsA("BasePart") then
+        return model.Position
+    end
+    if model.PrimaryPart then
+        return model.PrimaryPart.Position
+    end
+    local cf, size = model:GetBoundingBox()
+    return cf.Position
+end
+
 local function CreateESP(targetObject, color, isHull)
     if ESPInstances[targetObject] then return ESPInstances[targetObject] end
-
+    
     local highlight = Instance.new("Highlight")
-    highlight.FillColor = EnableFill    and color            or Color3.new(0,0,0)
-    highlight.FillTransparency = EnableFill    and FillTransparency or 1
-    highlight.OutlineColor = EnableOutline and color            or Color3.new(0,0,0)
+    highlight.FillColor = EnableFill and color or Color3.new(0,0,0)
+    highlight.FillTransparency = EnableFill and FillTransparency or 1
+    highlight.OutlineColor = EnableOutline and color or Color3.new(0,0,0)
     highlight.OutlineTransparency = EnableOutline and OutlineTransparency or 1
     highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     highlight.Adornee = targetObject
     highlight.Parent = ESPFolder
-
+    
     local distanceBillboard, distanceLabel, markBillboard, turretAdornee
-
+    
     if isHull then
         distanceBillboard = Instance.new("BillboardGui")
         distanceBillboard.Name = "DistanceDisplay"
@@ -398,9 +463,9 @@ local function CreateESP(targetObject, color, isHull)
         distanceBillboard.Size = UDim2.new(0,200,0,50)
         distanceBillboard.StudsOffset = Vector3.new(0,-3,0)
         distanceBillboard.AlwaysOnTop = true
-        distanceBillboard.Enabled = ESPEnabled and ShowDistance
+        distanceBillboard.Enabled = (ESPEnabled == true) and (ShowDistance == true)
         distanceBillboard.Parent = ESPFolder
-
+        
         distanceLabel = Instance.new("TextLabel")
         distanceLabel.Name = "DistanceText"
         distanceLabel.BackgroundTransparency = 1
@@ -412,7 +477,7 @@ local function CreateESP(targetObject, color, isHull)
         distanceLabel.TextStrokeColor3 = Color3.new(0,0,0)
         distanceLabel.Text = "0 m"
         distanceLabel.Parent = distanceBillboard
-
+        
         local chassis = targetObject.Parent and targetObject.Parent.Parent
         if chassis then
             local turret = chassis:FindFirstChild("Turret")
@@ -422,7 +487,7 @@ local function CreateESP(targetObject, color, isHull)
                 end
             end
         end
-
+        
         markBillboard = Instance.new("Frame")
         markBillboard.Name = "MarkDisplay"
         markBillboard.Size = UDim2.new(0, MarkSize, 0, MarkSize)
@@ -430,7 +495,7 @@ local function CreateESP(targetObject, color, isHull)
         markBillboard.BackgroundTransparency = 1
         markBillboard.Visible = false
         markBillboard.Parent = MarkScreenGui
-
+        
         local img = Instance.new("ImageLabel")
         img.Name = "MarkImage"
         img.BackgroundTransparency = 1
@@ -438,7 +503,7 @@ local function CreateESP(targetObject, color, isHull)
         img.Image = "rbxassetid://" .. tostring(MarkDecalID)
         img.Parent = markBillboard
     end
-
+    
     ESPInstances[targetObject] = {
         Instance = highlight,
         DistanceLabel = distanceLabel,
@@ -455,19 +520,20 @@ end
 local function UpdateMarkPositions()
     if not Camera then return end
     if not EnableMark then return end
-
+    
     local camPos = Camera.CFrame.Position
     local vpSize = Camera.ViewportSize
-
+    
     for _, espData in pairs(ESPInstances) do
         if espData.MarkBillboard and espData.IsHull then
             local target = espData.TurretAdornee or espData.Target
             if target and target.Parent then
-                local pos = target:GetPivot().Position
+                local ok, pos = pcall(GetModelPosition, target)
+                if not ok then pos = espData.Target.Position end
                 if (pos - camPos).Magnitude >= MarkDistance then
                     local sp, onScreen = Camera:WorldToViewportPoint(pos)
                     if onScreen and sp.Z > 0 then
-                        local x = math.clamp(sp.X - MarkSize/2,               0, vpSize.X - MarkSize)
+                        local x = math.clamp(sp.X - MarkSize/2, 0, vpSize.X - MarkSize)
                         local y = math.clamp(sp.Y - MarkOffsetY - MarkSize/2, 0, vpSize.Y - MarkSize)
                         espData.MarkBillboard.Position = UDim2.new(0, x, 0, y)
                         espData.MarkBillboard.Visible  = true
@@ -489,8 +555,11 @@ local function UpdateDistanceLabels()
     local camPos = Camera.CFrame.Position
     for _, espData in pairs(ESPInstances) do
         if espData.IsHull and espData.DistanceLabel and espData.Target and espData.Target.Parent then
-            local dist = math.floor((espData.Target:GetPivot().Position - camPos).Magnitude / 3)
-            espData.DistanceLabel.Text = dist .. " m"
+            local ok, pos = pcall(GetModelPosition, espData.Target)
+            if ok then
+                local dist = math.floor((pos - camPos).Magnitude / 3)
+                espData.DistanceLabel.Text = dist .. " m"
+            end
         end
     end
 end
@@ -500,16 +569,31 @@ local function CleanupESP()
     for obj, espData in pairs(ESPInstances) do
         if not obj or not obj.Parent then
             table.insert(toRemove, obj)
-            if espData.Instance          then espData.Instance:Destroy()          end
+            if espData.Instance then espData.Instance:Destroy() end
             if espData.DistanceBillboard then espData.DistanceBillboard:Destroy() end
-            if espData.MarkBillboard     then espData.MarkBillboard:Destroy()     end
+            if espData.MarkBillboard then espData.MarkBillboard:Destroy() end
         end
     end
     for _, obj in ipairs(toRemove) do ESPInstances[obj] = nil end
 end
 
-local function ProcessChassis(chassis)
-    if not chassis:IsA("Actor") or not chassis.Name:match("^Chassis") then return end
+function ProcessChassis(chassis)
+    if not chassis:IsA("Model") or not chassis.Name:match("^Chassis") then return end
+    
+    local playerName = chassis.Name:match("^Chassis(.+)$")
+    if not playerName or playerName == "" then return end
+    
+    if playerName == LocalPlayer.Name then return end
+    
+    if TeamCheckEnabled then
+        local targetPlayer = Players:FindFirstChild(playerName)
+        if not targetPlayer then return end
+        
+        local localTeam  = LocalPlayer.Team
+        local targetTeam = targetPlayer.Team
+        if localTeam and targetTeam and localTeam == targetTeam then return end
+    end
+    
     local hull = chassis:FindFirstChild("Hull")
     if hull then
         for _, obj in ipairs(hull:GetChildren()) do
@@ -524,15 +608,6 @@ local function ProcessChassis(chassis)
     end
 end
 
-local function ScanVehicles()
-    local vehiclesFolder = workspace:FindFirstChild("Vehicles")
-    if not vehiclesFolder then return end
-    for _, chassis in ipairs(vehiclesFolder:GetChildren()) do
-        ProcessChassis(chassis)
-    end
-end
-
-
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if isRebinding or (tick() - lastRebindTime) < 0.5 then return end
@@ -546,47 +621,258 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 end)
 
 
-RunService.RenderStepped:Connect(function(dt)
+workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
     Camera = Workspace.CurrentCamera
+end)
 
+RunService.Heartbeat:Connect(function(dt)
     TimeSinceLastVehicleScan += dt
     if TimeSinceLastVehicleScan >= VehicleScanInterval then
         TimeSinceLastVehicleScan = 0
         ScanVehicles()
     end
-
+    
     TimeSinceLastCleanup += dt
     if TimeSinceLastCleanup >= CleanupInterval then
         TimeSinceLastCleanup = 0
         CleanupESP()
     end
+    
+    UpdateDistanceLabels()
+end)
 
+
+RunService.RenderStepped:Connect(function(dt)
     TimeSinceLastMarkUpdate += dt
     if TimeSinceLastMarkUpdate >= MarkUpdateInterval then
         TimeSinceLastMarkUpdate = 0
         UpdateMarkPositions()
     end
-
-    UpdateDistanceLabels()
-
-    if flying and flyRoot and flyRoot.Parent then
-        local cam  = Workspace.CurrentCamera
-        local move = Vector3.zero
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then move += cam.CFrame.LookVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then move -= cam.CFrame.LookVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then move -= cam.CFrame.RightVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then move += cam.CFrame.RightVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move += Vector3.new(0,1,0) end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then move -= Vector3.new(0,1,0) end
-        bv.Velocity = move.Magnitude > 0 and move.Unit * flySpeed or Vector3.zero
-        bg.CFrame   = cam.CFrame
+    
+    if flying then
+        if flyRoot and flyRoot.Parent then
+            local cam  = Workspace.CurrentCamera
+            local move = Vector3.zero
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then move += cam.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then move -= cam.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then move -= cam.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then move += cam.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move += Vector3.new(0,1,0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then move -= Vector3.new(0,1,0) end
+            bv.Velocity = move.Magnitude > 0 and move.Unit * flySpeed or Vector3.zero
+            bg.CFrame   = cam.CFrame
+        end
     end
 end)
 
 ScanVehicles()
 
-game:BindToClose(function()
-    ESPFolder:Destroy()
-    MarkScreenGui:Destroy()
-    ESPInstances = {}
+local function ProcessAtmosphere(atmosphere)
+    if RemoveFogEnabled then
+        atmosphere.Density = 0
+        atmosphere.Haze = 0
+    end
+end
+
+local function WatchAtmosphere(atmosphere)
+    ProcessAtmosphere(atmosphere)
+    atmosphere.Changed:Connect(function(property)
+        if property == "Density" or property == "Haze" then
+            ProcessAtmosphere(atmosphere)
+        end
+    end)
+end
+
+Lighting.ChildAdded:Connect(function(child)
+    if child:IsA("Atmosphere") then WatchAtmosphere(child) end
 end)
+
+for _, child in ipairs(Lighting:GetChildren()) do
+    if child:IsA("Atmosphere") then WatchAtmosphere(child) end
+end
+
+local HACKS = {
+    Penetration = {
+        target = 9999, active = false,
+        names = {"Penetration", "Penetrate"},
+        patched = {}, origPatched = {}
+    },
+    Ricochet = {
+        target = 9999, active = false,
+        names = {"RicochetAngle"},
+        patched = {}, origPatched = {}
+    },
+    BulletGravity = {
+        target = 0, active = false,
+        names = {"BulletGravity"},
+        patched = {}, origPatched = {}
+    },
+    ShellSpeed = {
+        target = 9999, active = false,
+        names = {"ShellSpeed"},
+        patched = {}, origPatched = {}
+    },
+}
+
+local WeaponConnections = {}
+local ChassisDescendantConn = nil
+
+local function GetOwnChassis()
+    local vehicles = Workspace:FindFirstChild("Vehicles")
+    if not vehicles then return nil end
+    return vehicles:FindFirstChild("Chassis" .. LocalPlayer.Name)
+end
+
+local function ForceValue(obj, hack)
+    if not hack.patched[obj] then
+        hack.patched[obj] = obj.Value
+    end
+    if obj:GetAttribute("Orig") ~= nil then
+        if not hack.origPatched[obj] then
+            hack.origPatched[obj] = obj:GetAttribute("Orig")
+        end
+        obj:SetAttribute("Orig", hack.target)
+    end
+    obj.Value = hack.target
+end
+
+local function WatchWeaponObject(obj)
+    for _, hack in pairs(HACKS) do
+        if hack.active then
+            for _, name in ipairs(hack.names) do
+                if obj.Name == name then
+                    ForceValue(obj, hack)
+                    WeaponConnections[obj] = obj:GetPropertyChangedSignal("Value"):Connect(function()
+                        if obj.Value ~= hack.target then
+                            ForceValue(obj, hack)
+                        end
+                    end)
+                    return
+                end
+            end
+        end
+    end
+end
+
+local function ClearWeaponConnections()
+    for _, conn in pairs(WeaponConnections) do conn:Disconnect() end
+    table.clear(WeaponConnections)
+end
+
+local function SetupWeaponChassis(chassis)
+    if ChassisDescendantConn then
+        ChassisDescendantConn:Disconnect()
+        ChassisDescendantConn = nil
+    end
+    ClearWeaponConnections()
+    for _, obj in ipairs(chassis:GetDescendants()) do
+        if obj:IsA("IntValue") or obj:IsA("NumberValue") then
+            WatchWeaponObject(obj)
+        end
+    end
+    ChassisDescendantConn = chassis.DescendantAdded:Connect(function(obj)
+        if obj:IsA("IntValue") or obj:IsA("NumberValue") then
+            WatchWeaponObject(obj)
+        end
+    end)
+end
+
+local function InitWeapon()
+    local chassis = GetOwnChassis()
+    if chassis then SetupWeaponChassis(chassis) end
+end
+
+Workspace:WaitForChild("Vehicles").ChildAdded:Connect(function(obj)
+    if obj.Name == ("Chassis" .. LocalPlayer.Name) then
+        for _, hack in pairs(HACKS) do
+            hack.patched = {}
+            hack.origPatched = {}
+        end
+        task.wait(1)
+        SetupWeaponChassis(obj)
+    end
+end)
+
+Workspace:WaitForChild("Vehicles").ChildRemoved:Connect(function(obj)
+    if not obj:IsA("Model") then return end
+    local toRemove = {}
+    for target, espData in pairs(ESPInstances) do
+        if target == obj or (espData.Target and espData.Target:IsDescendantOf(obj)) then
+            table.insert(toRemove, target)
+            if espData.Instance then espData.Instance:Destroy() end
+            if espData.DistanceBillboard then espData.DistanceBillboard:Destroy() end
+            if espData.MarkBillboard then espData.MarkBillboard:Destroy() end
+        end
+    end
+    for _, t in ipairs(toRemove) do ESPInstances[t] = nil end
+end)
+
+InitWeapon()
+
+WeaponTab:CreateSection("Penetration")
+WeaponTab:CreateToggle({
+    Name = "Enable Penetration Hack", CurrentValue = false, Flag = "HackPenetrationFlag",
+    Callback = function(Value)
+        HACKS.Penetration.active = Value
+        task.defer(InitWeapon)
+    end,
+})
+WeaponTab:CreateSlider({
+    Name = "Penetration Value", Range = {0, 9999}, Increment = 1,
+    CurrentValue = 9999, Flag = "PenetrationValueFlag",
+    Callback = function(Value)
+        HACKS.Penetration.target = Value
+        if HACKS.Penetration.active then task.defer(InitWeapon) end
+    end,
+})
+
+WeaponTab:CreateSection("Ricochet Angle")
+WeaponTab:CreateToggle({
+    Name = "Enable Ricochet Hack", CurrentValue = false, Flag = "HackRicochetFlag",
+    Callback = function(Value)
+        HACKS.Ricochet.active = Value
+        task.defer(InitWeapon)
+    end,
+})
+WeaponTab:CreateSlider({
+    Name = "Ricochet Value", Range = {0, 9999}, Increment = 1,
+    CurrentValue = 9999, Flag = "RicochetValueFlag",
+    Callback = function(Value)
+        HACKS.Ricochet.target = Value
+        if HACKS.Ricochet.active then task.defer(InitWeapon) end
+    end,
+})
+
+WeaponTab:CreateSection("Bullet Gravity")
+WeaponTab:CreateToggle({
+    Name = "Enable Bullet Gravity Hack", CurrentValue = false, Flag = "HackBulletGravityFlag",
+    Callback = function(Value)
+        HACKS.BulletGravity.active = Value
+        task.defer(InitWeapon)
+    end,
+})
+WeaponTab:CreateSlider({
+    Name = "Bullet Gravity Value", Range = {-500, 500}, Increment = 1,
+    CurrentValue = 0, Flag = "BulletGravityValueFlag",
+    Callback = function(Value)
+        HACKS.BulletGravity.target = Value
+        if HACKS.BulletGravity.active then task.defer(InitWeapon) end
+    end,
+})
+
+WeaponTab:CreateSection("Shell Speed")
+WeaponTab:CreateToggle({
+    Name = "Enable Shell Speed Hack", CurrentValue = false, Flag = "HackShellSpeedFlag",
+    Callback = function(Value)
+        HACKS.ShellSpeed.active = Value
+        task.defer(InitWeapon)
+    end,
+})
+WeaponTab:CreateSlider({
+    Name = "Shell Speed Value", Range = {0, 9999}, Increment = 1,
+    CurrentValue = 9999, Flag = "ShellSpeedValueFlag",
+    Callback = function(Value)
+        HACKS.ShellSpeed.target = Value
+        if HACKS.ShellSpeed.active then task.defer(InitWeapon) end
+    end,
+})
