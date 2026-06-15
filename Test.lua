@@ -424,9 +424,12 @@ end
 local function UpdateESPInstance(espData)
     if not espData.Instance then return end
     
-    espData.Instance.FillColor = ESP.EnableFill and espData.Color or Color3.new(0,0,0)
+    local color = espData.IsHull and ESP.HullColor or ESP.TurretColor
+    espData.Color = color
+    
+    espData.Instance.FillColor = ESP.EnableFill and color or Color3.new(0,0,0)
     espData.Instance.FillTransparency = ESP.EnableFill and ESP.FillTransparency or 1
-    espData.Instance.OutlineColor = ESP.EnableOutline and espData.Color or Color3.new(0,0,0)
+    espData.Instance.OutlineColor = ESP.EnableOutline and color or Color3.new(0,0,0)
     espData.Instance.OutlineTransparency = ESP.EnableOutline and ESP.OutlineTransparency or 1
     espData.Instance.Enabled = ESP.Enabled
 
@@ -461,36 +464,70 @@ end
 
 local Window = library.new("C.T.S", 5012544693)
 
+local CONFIG_PATH = "CTS/config"
+
+local loadingConfig = false
+local saveDirty = false
+local SAVE_INTERVAL = 2
+
+local function AutoSave()
+    if loadingConfig then return end
+    saveDirty = true
+end
+
+task.spawn(function()
+    while true do
+        task.wait(SAVE_INTERVAL)
+        if saveDirty then
+            saveDirty = false
+            Window:SaveConfig(CONFIG_PATH)
+        end
+    end
+end)
+
+-- press K to show/hide the UI
+Services.UserInput.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.K then
+        Window:toggle()
+    end
+end)
+
+
 local MainTab = Window:addPage("Main", 5012544693)
 local VisualTab = Window:addPage("Visual", 5012544693)
 local WeaponTab = Window:addPage("Weapon", 5012544693)
 local FlyTab = Window:addPage("Fly", 5012544693)
 local SettingsTab = Window:addPage("Settings", 5012544693)
 
-Window:SelectPage(MainTab, true)
-
 local MainSection1 = MainTab:addSection("Control")
 local MainSection2 = MainTab:addSection("Mark Settings")
 
-MainSection1:addToggle("Enable ESP", true, function(Value)
+local EnableESPToggle = MainSection1:addToggle("Enable ESP", true, function(Value)
     ESP.Enabled = Value
     UpdateAllESPInstances()
+    Window:SetFlagSilent("EnableESP", Value)
+    AutoSave()
 end)
 
-MainSection1:addToggle("Team Check (enemies only)", false, function(Value)
+local TeamCheckToggle = MainSection1:addToggle("Team Check (enemies only)", false, function(Value)
     ESP.TeamCheck = Value
     task.defer(function()
         ClearAllESP()
         ScanVehicles()
     end)
+    Window:SetFlagSilent("TeamCheck", Value)
+    AutoSave()
 end)
 
-MainSection1:addToggle("Show Distance", false, function(Value)
+local ShowDistanceToggle = MainSection1:addToggle("Show Distance", false, function(Value)
     ESP.ShowDistance = Value
     UpdateAllESPInstances()
+    Window:SetFlagSilent("ShowDistance", Value)
+    AutoSave()
 end)
 
-MainSection2:addToggle("Enable Mark", false, function(Value)
+local EnableMarkToggle = MainSection2:addToggle("Enable Mark", false, function(Value)
     Mark.Enabled = Value
     for _, espData in pairs(ESP.Instances) do
         if espData.MarkBillboard and espData.IsHull then
@@ -498,13 +535,17 @@ MainSection2:addToggle("Enable Mark", false, function(Value)
             espData.MarkBillboard.Position = UDim2.new(0, 0, 0, 0)
         end
     end
+    Window:SetFlagSilent("EnableMark", Value)
+    AutoSave()
 end)
 
-MainSection2:addSlider("Mark Distance", 1000, 0, 5000, function(Value)
+local MarkDistanceSlider = MainSection2:addSlider("Mark Distance", 1000, 0, 5000, function(Value)
     Mark.Distance = Value
+    Window:SetFlagSilent("MarkDistance", Value)
+    AutoSave()
 end)
 
-MainSection2:addTextbox("Mark Decal ID", "11552476728", function(Value)
+local MarkDecalIDInput = MainSection2:addTextbox("Mark Decal ID", "11552476728", function(Value)
     local id = tonumber(Value)
     if id and id > 0 then
         Mark.DecalID = tostring(id)
@@ -515,20 +556,26 @@ MainSection2:addTextbox("Mark Decal ID", "11552476728", function(Value)
                 if img then img.Image = textureId end
             end
         end
+        Window:SetFlagSilent("MarkDecalID", Mark.DecalID)
+        AutoSave()
     end
 end)
 
-MainSection2:addSlider("Mark Offset Y", 50, 0, 200, function(Value)
+local MarkOffsetYSlider = MainSection2:addSlider("Mark Offset Y", 50, 0, 200, function(Value)
     Mark.OffsetY = Value
+    Window:SetFlagSilent("MarkOffsetY", Value)
+    AutoSave()
 end)
 
-MainSection2:addSlider("Mark Size", 25, 5, 50, function(Value)
+local MarkSizeSlider = MainSection2:addSlider("Mark Size", 25, 5, 50, function(Value)
     Mark.Size = Value
     for _, espData in pairs(ESP.Instances) do
         if espData.MarkBillboard then
             espData.MarkBillboard.Size = UDim2.new(0, Value, 0, Value)
         end
     end
+    Window:SetFlagSilent("MarkSize", Value)
+    AutoSave()
 end)
 
 
@@ -537,7 +584,7 @@ local VisualSection2 = VisualTab:addSection("Penetration View")
 local VisualSection3 = VisualTab:addSection("Colors")
 local VisualSection4 = VisualTab:addSection("Highlight Settings")
 
-VisualSection1:addToggle("Remove Fog", false, function(Value)
+local RemoveFogToggle = VisualSection1:addToggle("Remove Fog", false, function(Value)
     Other.RemoveFog = Value
     for _, child in ipairs(Services.Lighting:GetChildren()) do
         if child:IsA("Atmosphere") then
@@ -547,43 +594,59 @@ VisualSection1:addToggle("Remove Fog", false, function(Value)
             end
         end
     end
+    Window:SetFlagSilent("RemoveFog", Value)
+    AutoSave()
 end)
 
-VisualSection2:addToggle("Enable Penetration View", false, function(Value)
+local PenViewToggle = VisualSection2:addToggle("Enable Penetration View", false, function(Value)
     Other.PenView = Value
     if Value then
         PenView_Start()
     else
         PenView_Stop()
     end
+    Window:SetFlagSilent("PenView", Value)
+    AutoSave()
 end)
 
-VisualSection3:addColorPicker("Hull Color", Color3.new(0.8, 0.2, 0.9), function(Value)
+local HullColorPicker = VisualSection3:addColorPicker("Hull Color", Color3.new(0.8, 0.2, 0.9), function(Value)
     ESP.HullColor = Value
+    Window:SetFlagSilent("HullColor", Value)
+    AutoSave()
 end)
 
-VisualSection3:addColorPicker("Turret Color", Color3.new(0.2, 0.9, 0.4), function(Value)
+local TurretColorPicker = VisualSection3:addColorPicker("Turret Color", Color3.new(0.2, 0.9, 0.4), function(Value)
     ESP.TurretColor = Value
+    Window:SetFlagSilent("TurretColor", Value)
+    AutoSave()
 end)
 
-VisualSection4:addSlider("Fill Transparency", 50, 0, 100, function(Value)
+local FillTransparencySlider = VisualSection4:addSlider("Fill Transparency", 50, 0, 100, function(Value)
     ESP.FillTransparency = Value / 100
     UpdateAllESPInstances()
+    Window:SetFlagSilent("FillTransparency", Value)
+    AutoSave()
 end)
 
-VisualSection4:addSlider("Outline Transparency", 20, 0, 100, function(Value)
+local OutlineTransparencySlider = VisualSection4:addSlider("Outline Transparency", 20, 0, 100, function(Value)
     ESP.OutlineTransparency = Value / 100
     UpdateAllESPInstances()
+    Window:SetFlagSilent("OutlineTransparency", Value)
+    AutoSave()
 end)
 
-VisualSection4:addToggle("Enable Fill", true, function(Value)
+local EnableFillToggle = VisualSection4:addToggle("Enable Fill", true, function(Value)
     ESP.EnableFill = Value
     UpdateAllESPInstances()
+    Window:SetFlagSilent("EnableFill", Value)
+    AutoSave()
 end)
 
-VisualSection4:addToggle("Enable Outline", true, function(Value)
+local EnableOutlineToggle = VisualSection4:addToggle("Enable Outline", true, function(Value)
     ESP.EnableOutline = Value
     UpdateAllESPInstances()
+    Window:SetFlagSilent("EnableOutline", Value)
+    AutoSave()
 end)
 
 
@@ -600,14 +663,18 @@ FlySection1:addButton("Toggle Fly", function()
     end
 end)
 
-FlySection1:addSlider("Fly Speed", 70, 10, 300, function(Value)
+local FlySpeedSlider = FlySection1:addSlider("Fly Speed", 70, 10, 300, function(Value)
     Fly.Speed = Value
+    Window:SetFlagSilent("FlySpeed", Value)
+    AutoSave()
 end)
 
-FlySection2:addKeybind("Toggle Fly Key", Enum.KeyCode.M, function()
+local ToggleFlyKeybind = FlySection2:addKeybind("Toggle Fly Key", Enum.KeyCode.M, function()
     if Fly.Active then stopFly() else startFly() end
 end, function(key)
     Keys.Fly = key.KeyCode
+    Window:SetFlagSilent("FlyKey", key.KeyCode)
+    AutoSave()
 end)
 
 
@@ -615,19 +682,37 @@ local SettingsSection1 = SettingsTab:addSection("Performance")
 local SettingsSection2 = SettingsTab:addSection("Controls")
 local SettingsSection3 = SettingsTab:addSection("Project")
 
-SettingsSection1:addSlider("Mark Update Rate", 0.016, 0.016, 0.1, function(Value)
+local MarkUpdateRateSlider = SettingsSection1:addSlider("Mark Update Rate", {
+    default = 0.016,
+    min = 0.016,
+    max = 0.1,
+    increment = 0.001,
+    suffix = "s"
+}, function(Value)
     Mark.UpdateInterval = Value
+    Window:SetFlagSilent("MarkUpdateRate", Value)
+    AutoSave()
 end)
 
-SettingsSection1:addSlider("Scan Interval", 0.5, 0.1, 2, function(Value)
+local ScanIntervalSlider = SettingsSection1:addSlider("Scan Interval", {
+    default = 0.5,
+    min = 0.1,
+    max = 2,
+    increment = 0.1,
+    suffix = "s"
+}, function(Value)
     Timers.ScanInterval = Value
+    Window:SetFlagSilent("ScanInterval", Value)
+    AutoSave()
 end)
 
-SettingsSection2:addKeybind("Toggle ESP Key", Enum.KeyCode.F, function()
+local ToggleESPKeybind = SettingsSection2:addKeybind("Toggle ESP Key", Enum.KeyCode.F, function()
     ESP.Enabled = not ESP.Enabled
     UpdateAllESPInstances()
 end, function(key)
     Keys.Toggle = key.KeyCode
+    Window:SetFlagSilent("ESPKey", key.KeyCode)
+    AutoSave()
 end)
 
 SettingsSection3:addButton("Copy GitHub Link", function()
@@ -817,9 +902,6 @@ function ProcessChassis(chassis)
         end
     end
 end
-
--- Fly and ESP are handled directly by Venyx keybinds above.
--- This connection only guards against accidental rebind triggers.
 
 
 workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
@@ -1015,38 +1097,114 @@ local WeaponSection2 = WeaponTab:addSection("Ricochet Angle")
 local WeaponSection3 = WeaponTab:addSection("Bullet Gravity")
 local WeaponSection4 = WeaponTab:addSection("Shell Speed")
 
-WeaponSection1:addToggle("Enable Penetration Hack", false, function(Value)
+local PenetrationToggle = WeaponSection1:addToggle("Enable Penetration Hack", false, function(Value)
     HACKS.Penetration.active = Value
     task.defer(InitWeapon)
+    Window:SetFlagSilent("PenetrationEnabled", Value)
+    AutoSave()
 end)
-WeaponSection1:addSlider("Penetration Value", 9999, 0, 9999, function(Value)
+local PenetrationSlider = WeaponSection1:addSlider("Penetration Value", 9999, 0, 9999, function(Value)
     HACKS.Penetration.target = Value
     if HACKS.Penetration.active then task.defer(InitWeapon) end
+    Window:SetFlagSilent("PenetrationValue", Value)
+    AutoSave()
 end)
 
-WeaponSection2:addToggle("Enable Ricochet Hack", false, function(Value)
+local RicochetToggle = WeaponSection2:addToggle("Enable Ricochet Hack", false, function(Value)
     HACKS.Ricochet.active = Value
     task.defer(InitWeapon)
+    Window:SetFlagSilent("RicochetEnabled", Value)
+    AutoSave()
 end)
-WeaponSection2:addSlider("Ricochet Value", 9999, 0, 9999, function(Value)
+local RicochetSlider = WeaponSection2:addSlider("Ricochet Value", 9999, 0, 9999, function(Value)
     HACKS.Ricochet.target = Value
     if HACKS.Ricochet.active then task.defer(InitWeapon) end
+    Window:SetFlagSilent("RicochetValue", Value)
+    AutoSave()
 end)
 
-WeaponSection3:addToggle("Enable Bullet Gravity Hack", false, function(Value)
+local BulletGravityToggle = WeaponSection3:addToggle("Enable Bullet Gravity Hack", false, function(Value)
     HACKS.BulletGravity.active = Value
     task.defer(InitWeapon)
+    Window:SetFlagSilent("BulletGravityEnabled", Value)
+    AutoSave()
 end)
-WeaponSection3:addSlider("Bullet Gravity Value", 0, -500, 500, function(Value)
+local BulletGravitySlider = WeaponSection3:addSlider("Bullet Gravity Value", 0, -500, 500, function(Value)
     HACKS.BulletGravity.target = Value
     if HACKS.BulletGravity.active then task.defer(InitWeapon) end
+    Window:SetFlagSilent("BulletGravityValue", Value)
+    AutoSave()
 end)
 
-WeaponSection4:addToggle("Enable Shell Speed Hack", false, function(Value)
+local ShellSpeedToggle = WeaponSection4:addToggle("Enable Shell Speed Hack", false, function(Value)
     HACKS.ShellSpeed.active = Value
     task.defer(InitWeapon)
+    Window:SetFlagSilent("ShellSpeedEnabled", Value)
+    AutoSave()
 end)
-WeaponSection4:addSlider("Shell Speed Value", 9999, 0, 9999, function(Value)
+local ShellSpeedSlider = WeaponSection4:addSlider("Shell Speed Value", 9999, 0, 9999, function(Value)
     HACKS.ShellSpeed.target = Value
     if HACKS.ShellSpeed.active then task.defer(InitWeapon) end
+    Window:SetFlagSilent("ShellSpeedValue", Value)
+    AutoSave()
 end)
+
+Window:SelectPage(MainTab, true)
+
+task.spawn(function()
+    task.wait(0.5)
+    Window:Notify({
+        title = "Info",
+        text = "Press K to hide interface",
+        type = "info"
+    })
+end)
+
+Window:RegisterFlag("EnableESP", true, function(v) EnableESPToggle:Set(v, true) end)
+Window:RegisterFlag("TeamCheck", false, function(v) TeamCheckToggle:Set(v, true) end)
+Window:RegisterFlag("ShowDistance", false, function(v) ShowDistanceToggle:Set(v, true) end)
+Window:RegisterFlag("EnableMark", false, function(v) EnableMarkToggle:Set(v, true) end)
+Window:RegisterFlag("MarkDistance", 1000, function(v) MarkDistanceSlider:Set(v, true) end)
+Window:RegisterFlag("MarkDecalID", "11552476728", function(v) MarkDecalIDInput:Set(v, true) end)
+Window:RegisterFlag("MarkOffsetY", 50, function(v) MarkOffsetYSlider:Set(v, true) end)
+Window:RegisterFlag("MarkSize", 25, function(v) MarkSizeSlider:Set(v, true) end)
+
+Window:RegisterFlag("RemoveFog", false, function(v) RemoveFogToggle:Set(v, true) end)
+Window:RegisterFlag("PenView", false, function(v) PenViewToggle:Set(v, true) end)
+Window:RegisterFlag("HullColor", Color3.new(0.8, 0.2, 0.9), function(v) HullColorPicker:Set(v, true) end)
+Window:RegisterFlag("TurretColor", Color3.new(0.2, 0.9, 0.4), function(v) TurretColorPicker:Set(v, true) end)
+Window:RegisterFlag("FillTransparency", 50, function(v) FillTransparencySlider:Set(v, true) end)
+Window:RegisterFlag("OutlineTransparency", 20, function(v) OutlineTransparencySlider:Set(v, true) end)
+Window:RegisterFlag("EnableFill", true, function(v) EnableFillToggle:Set(v, true) end)
+Window:RegisterFlag("EnableOutline", true, function(v) EnableOutlineToggle:Set(v, true) end)
+
+Window:RegisterFlag("FlySpeed", 70, function(v) FlySpeedSlider:Set(v, true) end)
+Window:RegisterFlag("FlyKey", Enum.KeyCode.M, function(v)
+    ToggleFlyKeybind:Set(v)
+    Keys.Fly = v
+end)
+
+Window:RegisterFlag("MarkUpdateRate", 0.016, function(v) MarkUpdateRateSlider:Set(v, true) end)
+Window:RegisterFlag("ScanInterval", 0.5, function(v) ScanIntervalSlider:Set(v, true) end)
+Window:RegisterFlag("ESPKey", Enum.KeyCode.F, function(v)
+    ToggleESPKeybind:Set(v)
+    Keys.Toggle = v
+end)
+
+Window:RegisterFlag("PenetrationEnabled", false, function(v) PenetrationToggle:Set(v, true) end)
+Window:RegisterFlag("PenetrationValue", 9999, function(v) PenetrationSlider:Set(v, true) end)
+Window:RegisterFlag("RicochetEnabled", false, function(v) RicochetToggle:Set(v, true) end)
+Window:RegisterFlag("RicochetValue", 9999, function(v) RicochetSlider:Set(v, true) end)
+Window:RegisterFlag("BulletGravityEnabled", false, function(v) BulletGravityToggle:Set(v, true) end)
+Window:RegisterFlag("BulletGravityValue", 0, function(v) BulletGravitySlider:Set(v, true) end)
+Window:RegisterFlag("ShellSpeedEnabled", false, function(v) ShellSpeedToggle:Set(v, true) end)
+Window:RegisterFlag("ShellSpeedValue", 9999, function(v) ShellSpeedSlider:Set(v, true) end)
+
+task.spawn(function()
+    task.wait(1)
+    loadingConfig = true
+    Window:LoadConfig(CONFIG_PATH)
+    loadingConfig = false
+end)
+
+Window:SelectPage(MainTab, true)
