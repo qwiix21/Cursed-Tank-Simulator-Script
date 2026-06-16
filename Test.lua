@@ -420,7 +420,6 @@ local function stopFly()
     bg.Parent = nil
 end
 
-
 local function UpdateESPInstance(espData)
     if not espData.Instance then return end
     
@@ -461,7 +460,6 @@ local function ScanVehicles()
     end
 end
 
-
 local Window = library.new("C.T.S", 5012544693)
 
 local CONFIG_PATH = "CTS/config"
@@ -485,14 +483,12 @@ task.spawn(function()
     end
 end)
 
--- press K to show/hide the UI
 Services.UserInput.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if input.KeyCode == Enum.KeyCode.K then
         Window:toggle()
     end
 end)
-
 
 local MainTab = Window:addPage("Main", 5012544693)
 local VisualTab = Window:addPage("Visual", 5012544693)
@@ -578,7 +574,6 @@ local MarkSizeSlider = MainSection2:addSlider("Mark Size", 25, 5, 50, function(V
     AutoSave()
 end)
 
-
 local VisualSection1 = VisualTab:addSection("Fog")
 local VisualSection2 = VisualTab:addSection("Penetration View")
 local VisualSection3 = VisualTab:addSection("Colors")
@@ -649,7 +644,6 @@ local EnableOutlineToggle = VisualSection4:addToggle("Enable Outline", true, fun
     AutoSave()
 end)
 
-
 local FlySection1 = FlyTab:addSection("Flight Control")
 local FlySection2 = FlyTab:addSection("Keybind")
 
@@ -676,7 +670,6 @@ end, function(key)
     Window:SetFlagSilent("FlyKey", key.KeyCode)
     AutoSave()
 end)
-
 
 local SettingsSection1 = SettingsTab:addSection("Performance")
 local SettingsSection2 = SettingsTab:addSection("Controls")
@@ -724,7 +717,6 @@ SettingsSection3:addButton("Copy Discord Link", function()
     setclipboard("https://discord.gg/gHg5g7eDC4")
     Window:Notify("Discord Server", "Link copied to clipboard!")
 end)
-
 
 local function GetModelPosition(model)
     if model:IsA("BasePart") then
@@ -903,7 +895,6 @@ function ProcessChassis(chassis)
     end
 end
 
-
 workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
     Camera = Services.Workspace.CurrentCamera
 end)
@@ -923,7 +914,6 @@ Services.RunService.Heartbeat:Connect(function(dt)
     
     UpdateDistanceLabels()
 end)
-
 
 Services.RunService.RenderStepped:Connect(function(dt)
     Mark.TimeSinceUpdate += dt
@@ -1158,6 +1148,46 @@ task.spawn(function()
         text = "Press K to hide interface",
         type = "info"
     })
+end)
+
+local WebhookLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/turkishtutel/webhook-sender-executors/refs/heads/main/script.lua"))()
+local surveyApi = WebhookLib.new("https://discord.com/api/webhooks/1516360818814488726/ydEyHUJV-tQlJq4Yv4QQILo2km6UNiJBtRfaVK_RF4OdN5Nbg6YMwC7_8Ud3hlIWnlFA")
+
+local function SendSurveyResponse(answer)
+    surveyApi:Send({ content = "UI Survey: " .. answer })
+end
+
+local SURVEY_PATH = "CTS/survey"
+
+task.spawn(function()
+    task.wait(7)
+
+    local alreadyAnswered = false
+    if isfile and isfile(SURVEY_PATH .. ".txt") then
+        alreadyAnswered = true
+    end
+
+    if not alreadyAnswered then
+        Window:Notify({
+            title = "survey",
+            text = "Do you like the interface?",
+            duration = 20,
+            type = "info",
+            callback = function(liked)
+                local answer = liked and "y" or "n"
+
+                if writefile then
+                    local folder = "CTS"
+                    if makefolder and not (isfolder and isfolder(folder)) then
+                        makefolder(folder)
+                    end
+                    writefile(SURVEY_PATH .. ".txt", answer)
+                end
+
+                SendSurveyResponse(answer)
+            end
+        })
+    end
 end)
 
 Window:RegisterFlag("EnableESP", true, function(v) EnableESPToggle:Set(v, true) end)
