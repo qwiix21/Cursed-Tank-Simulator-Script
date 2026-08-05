@@ -1,6 +1,6 @@
-print("Three?")
+print("Venom")
 
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+local library = loadstring(game:HttpGet('https://raw.githubusercontent.com/qwiix21/Cursed-Tank-Simulator-Script/refs/heads/main/lib/lib'))()
 
 local Services = {
     RunService = game:GetService("RunService"),
@@ -420,13 +420,15 @@ local function stopFly()
     bg.Parent = nil
 end
 
-
 local function UpdateESPInstance(espData)
     if not espData.Instance then return end
     
-    espData.Instance.FillColor = ESP.EnableFill and espData.Color or Color3.new(0,0,0)
+    local color = espData.IsHull and ESP.HullColor or ESP.TurretColor
+    espData.Color = color
+    
+    espData.Instance.FillColor = ESP.EnableFill and color or Color3.new(0,0,0)
     espData.Instance.FillTransparency = ESP.EnableFill and ESP.FillTransparency or 1
-    espData.Instance.OutlineColor = ESP.EnableOutline and espData.Color or Color3.new(0,0,0)
+    espData.Instance.OutlineColor = ESP.EnableOutline and color or Color3.new(0,0,0)
     espData.Instance.OutlineTransparency = ESP.EnableOutline and ESP.OutlineTransparency or 1
     espData.Instance.Enabled = ESP.Enabled
 
@@ -458,300 +460,262 @@ local function ScanVehicles()
     end
 end
 
+local Window = library.new("C.T.S", 5012544693)
 
-local Window = Rayfield:CreateWindow({
-    Name = "C.T.S",
-    LoadingTitle = "Cursed Tank Simulator",
-    LoadingSubtitle = "by Qwiix21",
-    ConfigurationSaving = { Enabled = true, FolderName = "CTS", FileName = "config" },
-    Discord = false,
-    KeySystem = false,
-})
+local CONFIG_PATH = "CTS/config"
 
-Rayfield:Notify({
-    Title = "C.T.S Loaded",
-    Content = "Press K to hide interface during gameplay",
-    Duration = 5,
-    Image = 4483362458,
-})
+local loadingConfig = false
+local saveDirty = false
+local SAVE_INTERVAL = 2
 
-local MainTab = Window:CreateTab("Main", 4483362458)
-local VisualTab = Window:CreateTab("Visual", 4483362458)
-local WeaponTab = Window:CreateTab("Weapon", 4483362458)
-local FlyTab = Window:CreateTab("Fly", 4483362458)
-local SettingsTab = Window:CreateTab("Settings", 4483362458)
-
-
-MainTab:CreateSection("Control")
-MainTab:CreateLabel("Press K to hide/show interface")
-
-MainTab:CreateToggle({
-    Name = "Enable ESP", CurrentValue = true, Flag = "ESPToggle",
-    Callback = function(Value)
-        ESP.Enabled = Value
-        UpdateAllESPInstances()
-    end,
-})
-
-MainTab:CreateToggle({
-    Name = "Team Check (enemies only)", CurrentValue = false, Flag = "TeamCheckFlag",
-    Callback = function(Value)
-        ESP.TeamCheck = Value
-        task.defer(function()
-            ClearAllESP()
-            ScanVehicles()
-        end)
-    end,
-})
-
-MainTab:CreateToggle({
-    Name = "Show Distance", CurrentValue = false, Flag = "ShowDistanceFlag",
-    Callback = function(Value)
-        ESP.ShowDistance = Value
-        UpdateAllESPInstances()
-    end,
-})
-
-MainTab:CreateSection("Mark Settings")
-
-MainTab:CreateToggle({
-    Name = "Enable Mark", CurrentValue = false, Flag = "EnableMarkFlag",
-    Callback = function(Value)
-        Mark.Enabled = Value
-        for _, espData in pairs(ESP.Instances) do
-            if espData.MarkBillboard and espData.IsHull then
-                espData.MarkBillboard.Visible = false
-                espData.MarkBillboard.Position = UDim2.new(0, 0, 0, 0)
-            end
-        end
-    end,
-})
-
-MainTab:CreateLabel("Distance to show mark")
-MainTab:CreateSlider({
-    Name = "Mark Distance", Range = {0,5000}, Increment = 50,
-    Suffix = " studs", CurrentValue = 1000, Flag = "MarkDistanceFlag",
-    Callback = function(Value) Mark.Distance = Value end,
-})
-
-MainTab:CreateLabel("Mark appearance")
-MainTab:CreateInput({
-    Name = "Mark Decal ID", PlaceholderText = "11552476728",
-    RemoveTextAfterFocusLost = false, CurrentValue = "11552476728", Flag = "MarkDecalIDFlag",
-    Callback = function(Value)
-        local id = tonumber(Value)
-        if id and id > 0 then
-            Mark.DecalID = tostring(id)
-            local textureId = "rbxassetid://" .. Mark.DecalID
-            for _, espData in pairs(ESP.Instances) do
-                if espData.MarkBillboard then
-                    local img = espData.MarkBillboard:FindFirstChild("MarkImage")
-                    if img then img.Image = textureId end
-                end
-            end
-            Rayfield:Notify({ Title = "Mark Updated", Content = "Decal ID: "..Mark.DecalID, Duration = 2, Image = 4483362458 })
-        else
-            Rayfield:Notify({ Title = "Invalid ID", Content = "Please enter a valid number", Duration = 3, Image = 4483362458 })
-        end
-    end,
-})
-
-MainTab:CreateSlider({
-    Name = "Mark Offset Y", Range = {0,200}, Increment = 5,
-    Suffix = " px", CurrentValue = 50, Flag = "MarkOffsetYFlag",
-    Callback = function(Value) Mark.OffsetY = Value end,
-})
-
-MainTab:CreateSlider({
-    Name = "Mark Size", Range = {5,50}, Increment = 5,
-    Suffix = " px", CurrentValue = 25, Flag = "MarkSizeFlag",
-    Callback = function(Value)
-        Mark.Size = Value
-        for _, espData in pairs(ESP.Instances) do
-            if espData.MarkBillboard then
-                espData.MarkBillboard.Size = UDim2.new(0, Value, 0, Value)
-            end
-        end
-    end,
-})
-
-
-VisualTab:CreateSection("Fog")
-
-VisualTab:CreateToggle({
-    Name = "Remove Fog", CurrentValue = false, Flag = "RemoveFogFlag",
-    Callback = function(Value)
-        Other.RemoveFog = Value
-        for _, child in ipairs(Services.Lighting:GetChildren()) do
-            if child:IsA("Atmosphere") then
-                if Value then
-                    child.Density = 0
-                    child.Haze = 0
-                end
-            end
-        end
-    end,
-})
-
-VisualTab:CreateSection("Penetration View")
-
-VisualTab:CreateToggle({
-    Name = "Enable Penetration View", CurrentValue = false, Flag = "PenViewFlag",
-    Callback = function(Value)
-        Other.PenView = Value
-        if Value then
-            PenView_Start()
-        else
-            PenView_Stop()
-        end
-    end,
-})
-
-VisualTab:CreateSection("Colors")
-
-VisualTab:CreateColorPicker({
-    Name = "Hull Color", Color = Color3.new(0.8, 0.2, 0.9), Flag = "HullColorFlag",
-    Callback = function(Value) ESP.HullColor = Value end,
-})
-
-VisualTab:CreateColorPicker({
-    Name = "Turret Color", Color = Color3.new(0.2, 0.9, 0.4), Flag = "TurretColorFlag",
-    Callback = function(Value) ESP.TurretColor = Value end,
-})
-
-VisualTab:CreateSection("Highlight Settings")
-
-VisualTab:CreateSlider({
-    Name = "Fill Transparency", Range = {0,1}, Increment = 0.01,
-    CurrentValue = 0.5, Flag = "FillTransparencyFlag",
-    Callback = function(Value)
-        ESP.FillTransparency = Value
-        UpdateAllESPInstances()
-    end,
-})
-
-VisualTab:CreateSlider({
-    Name = "Outline Transparency", Range = {0,1}, Increment = 0.01,
-    CurrentValue = 0.2, Flag = "OutlineTransparencyFlag",
-    Callback = function(Value)
-        ESP.OutlineTransparency = Value
-        UpdateAllESPInstances()
-    end,
-})
-
-VisualTab:CreateToggle({
-    Name = "Enable Fill", CurrentValue = true, Flag = "EnableFillFlag",
-    Callback = function(Value)
-        ESP.EnableFill = Value
-        UpdateAllESPInstances()
-    end,
-})
-
-VisualTab:CreateToggle({
-    Name = "Enable Outline", CurrentValue = true, Flag = "EnableOutlineFlag",
-    Callback = function(Value)
-        ESP.EnableOutline = Value
-        UpdateAllESPInstances()
-    end,
-})
-
-
-FlyTab:CreateSection("Flight Control")
-FlyTab:CreateLabel("W/A/S/D — move  |  Space — up  |  LCtrl — down")
-
-FlyTab:CreateButton({
-    Name = "Toggle Fly",
-    Callback = function()
-        if Fly.Active then
-            stopFly()
-            Rayfield:Notify({ Title = "Fly", Content = "Flight disabled", Duration = 2, Image = 4483362458 })
-        else
-            startFly()
-            Rayfield:Notify({ Title = "Fly", Content = "Flight enabled", Duration = 2, Image = 4483362458 })
-        end
-    end,
-})
-
-FlyTab:CreateSlider({
-    Name = "Fly Speed", Range = {10,300}, Increment = 10,
-    Suffix = " studs/s", CurrentValue = 70, Flag = "FlySpeedFlag",
-    Callback = function(Value) Fly.Speed = Value end,
-})
-
-FlyTab:CreateSection("Keybind")
-
-FlyTab:CreateKeybind({
-    Name = "Toggle Fly Key", CurrentKeybind = "M", HoldToInteract = false, Flag = "FlyKeyFlag",
-    Callback = function(Value)
-        Fly.IsRebinding = true
-        Fly.LastRebindTime = tick()
-        local key = parseKeyCode(Value)
-        if key then Keys.Fly = key end
-        task.delay(0.5, function() Fly.IsRebinding = false end)
-    end,
-})
-
-
-SettingsTab:CreateSection("Performance")
-
-SettingsTab:CreateSlider({
-    Name = "Mark Update Rate", Range = {0.016,0.1}, Increment = 0.016,
-    Suffix = "s", CurrentValue = 0.016, Flag = "MarkUpdateIntervalFlag",
-    Callback = function(Value) Mark.UpdateInterval = Value end,
-})
-
-SettingsTab:CreateSlider({
-    Name = "Scan Interval", Range = {0.1,2.0}, Increment = 0.1,
-    Suffix = "s", CurrentValue = 0.5, Flag = "ScanIntervalFlag",
-    Callback = function(Value) Timers.ScanInterval = Value end,
-})
-
-SettingsTab:CreateSection("Controls")
-
-SettingsTab:CreateKeybind({
-    Name = "Toggle ESP Key", CurrentKeybind = "F", HoldToInteract = false, Flag = "ToggleKeyFlag",
-    Callback = function(Value)
-        Fly.IsRebinding = true
-        Fly.LastRebindTime = tick()
-        local key = parseKeyCode(Value)
-        if key then Keys.Toggle = key end
-        task.delay(0.5, function() Fly.IsRebinding = false end)
-    end,
-})
-
-SettingsTab:CreateSection("Project")
-
-SettingsTab:CreateButton({
-    Name = "Copy GitHub Link",
-    Callback = function()
-        setclipboard("https://github.com/qwiix21/Cursed-Tank-Simulator-Script")
-        Rayfield:Notify({ Title = "Repository Link", Content = "Link copied to clipboard!", Duration = 3, Image = 4483362458 })
-    end,
-})
-
-SettingsTab:CreateButton({
-    Name = "Copy Discord Link",
-    Callback = function()
-        setclipboard("https://discord.gg/gHg5g7eDC4")
-        Rayfield:Notify({ Title = "Discord Server", Content = "Link copied to clipboard!", Duration = 3, Image = 4483362458 })
-    end,
-})
-
-Rayfield:LoadConfiguration()
-
-do
-    local tf = Rayfield.Flags and Rayfield.Flags["ToggleKeyFlag"]
-    if tf and tf.CurrentKeybind then
-        local k = parseKeyCode(tf.CurrentKeybind)
-        if k then Keys.Toggle = k end
-    end
-    local ff = Rayfield.Flags and Rayfield.Flags["FlyKeyFlag"]
-    if ff and ff.CurrentKeybind then
-        local k = parseKeyCode(ff.CurrentKeybind)
-        if k then Keys.Fly = k end
-    end
+local function AutoSave()
+    if loadingConfig then return end
+    saveDirty = true
 end
 
+task.spawn(function()
+    while true do
+        task.wait(SAVE_INTERVAL)
+        if saveDirty then
+            saveDirty = false
+            Window:SaveConfig(CONFIG_PATH)
+        end
+    end
+end)
+
+Services.UserInput.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.K then
+        Window:toggle()
+    end
+end)
+
+local MainTab = Window:addPage("Main", 5012544693)
+local VisualTab = Window:addPage("Visual", 5012544693)
+local FlyTab = Window:addPage("Fly", 5012544693)
+local SettingsTab = Window:addPage("Settings", 5012544693)
+
+local MainSection1 = MainTab:addSection("Control")
+local MainSection2 = MainTab:addSection("Mark Settings")
+
+local EnableESPToggle = MainSection1:addToggle("Enable ESP", true, function(Value)
+    ESP.Enabled = Value
+    UpdateAllESPInstances()
+    Window:SetFlagSilent("EnableESP", Value)
+    AutoSave()
+end)
+
+local TeamCheckToggle = MainSection1:addToggle("Team Check (enemies only)", false, function(Value)
+    ESP.TeamCheck = Value
+    task.defer(function()
+        ClearAllESP()
+        ScanVehicles()
+    end)
+    Window:SetFlagSilent("TeamCheck", Value)
+    AutoSave()
+end)
+
+local ShowDistanceToggle = MainSection1:addToggle("Show Distance", false, function(Value)
+    ESP.ShowDistance = Value
+    UpdateAllESPInstances()
+    Window:SetFlagSilent("ShowDistance", Value)
+    AutoSave()
+end)
+
+local EnableMarkToggle = MainSection2:addToggle("Enable Mark", false, function(Value)
+    Mark.Enabled = Value
+    for _, espData in pairs(ESP.Instances) do
+        if espData.MarkBillboard and espData.IsHull then
+            espData.MarkBillboard.Visible = false
+            espData.MarkBillboard.Position = UDim2.new(0, 0, 0, 0)
+        end
+    end
+    Window:SetFlagSilent("EnableMark", Value)
+    AutoSave()
+end)
+
+local MarkDistanceSlider = MainSection2:addSlider("Mark Distance", 1000, 0, 5000, function(Value)
+    Mark.Distance = Value
+    Window:SetFlagSilent("MarkDistance", Value)
+    AutoSave()
+end)
+
+local MarkDecalIDInput = MainSection2:addTextbox("Mark Decal ID", "11552476728", function(Value)
+    local id = tonumber(Value)
+    if id and id > 0 then
+        Mark.DecalID = tostring(id)
+        local textureId = "rbxassetid://" .. Mark.DecalID
+        for _, espData in pairs(ESP.Instances) do
+            if espData.MarkBillboard then
+                local img = espData.MarkBillboard:FindFirstChild("MarkImage")
+                if img then img.Image = textureId end
+            end
+        end
+        Window:SetFlagSilent("MarkDecalID", Mark.DecalID)
+        AutoSave()
+    end
+end)
+
+local MarkOffsetYSlider = MainSection2:addSlider("Mark Offset Y", 50, 0, 200, function(Value)
+    Mark.OffsetY = Value
+    Window:SetFlagSilent("MarkOffsetY", Value)
+    AutoSave()
+end)
+
+local MarkSizeSlider = MainSection2:addSlider("Mark Size", 25, 5, 50, function(Value)
+    Mark.Size = Value
+    for _, espData in pairs(ESP.Instances) do
+        if espData.MarkBillboard then
+            espData.MarkBillboard.Size = UDim2.new(0, Value, 0, Value)
+        end
+    end
+    Window:SetFlagSilent("MarkSize", Value)
+    AutoSave()
+end)
+
+local VisualSection1 = VisualTab:addSection("Fog")
+local VisualSection2 = VisualTab:addSection("Penetration View")
+local VisualSection3 = VisualTab:addSection("Colors")
+local VisualSection4 = VisualTab:addSection("Highlight Settings")
+
+local RemoveFogToggle = VisualSection1:addToggle("Remove Fog", false, function(Value)
+    Other.RemoveFog = Value
+    for _, child in ipairs(Services.Lighting:GetChildren()) do
+        if child:IsA("Atmosphere") then
+            if Value then
+                child.Density = 0
+                child.Haze = 0
+            end
+        end
+    end
+    Window:SetFlagSilent("RemoveFog", Value)
+    AutoSave()
+end)
+
+local PenViewToggle = VisualSection2:addToggle("Enable Penetration View", false, function(Value)
+    Other.PenView = Value
+    if Value then
+        PenView_Start()
+    else
+        PenView_Stop()
+    end
+    Window:SetFlagSilent("PenView", Value)
+    AutoSave()
+end)
+
+local HullColorPicker = VisualSection3:addColorPicker("Hull Color", Color3.new(0.8, 0.2, 0.9), function(Value)
+    ESP.HullColor = Value
+    Window:SetFlagSilent("HullColor", Value)
+    AutoSave()
+end)
+
+local TurretColorPicker = VisualSection3:addColorPicker("Turret Color", Color3.new(0.2, 0.9, 0.4), function(Value)
+    ESP.TurretColor = Value
+    Window:SetFlagSilent("TurretColor", Value)
+    AutoSave()
+end)
+
+local FillTransparencySlider = VisualSection4:addSlider("Fill Transparency", 50, 0, 100, function(Value)
+    ESP.FillTransparency = Value / 100
+    UpdateAllESPInstances()
+    Window:SetFlagSilent("FillTransparency", Value)
+    AutoSave()
+end)
+
+local OutlineTransparencySlider = VisualSection4:addSlider("Outline Transparency", 20, 0, 100, function(Value)
+    ESP.OutlineTransparency = Value / 100
+    UpdateAllESPInstances()
+    Window:SetFlagSilent("OutlineTransparency", Value)
+    AutoSave()
+end)
+
+local EnableFillToggle = VisualSection4:addToggle("Enable Fill", true, function(Value)
+    ESP.EnableFill = Value
+    UpdateAllESPInstances()
+    Window:SetFlagSilent("EnableFill", Value)
+    AutoSave()
+end)
+
+local EnableOutlineToggle = VisualSection4:addToggle("Enable Outline", true, function(Value)
+    ESP.EnableOutline = Value
+    UpdateAllESPInstances()
+    Window:SetFlagSilent("EnableOutline", Value)
+    AutoSave()
+end)
+
+local FlySection1 = FlyTab:addSection("Flight Control")
+local FlySection2 = FlyTab:addSection("Keybind")
+
+FlySection1:addButton("Toggle Fly", function()
+    if Fly.Active then
+        stopFly()
+        Window:Notify("Fly", "Flight disabled")
+    else
+        startFly()
+        Window:Notify("Fly", "Flight enabled")
+    end
+end)
+
+local FlySpeedSlider = FlySection1:addSlider("Fly Speed", 70, 10, 300, function(Value)
+    Fly.Speed = Value
+    Window:SetFlagSilent("FlySpeed", Value)
+    AutoSave()
+end)
+
+local ToggleFlyKeybind = FlySection2:addKeybind("Toggle Fly Key", Enum.KeyCode.M, function()
+    if Fly.Active then stopFly() else startFly() end
+end, function(key)
+    Keys.Fly = key.KeyCode
+    Window:SetFlagSilent("FlyKey", key.KeyCode)
+    AutoSave()
+end)
+
+local SettingsSection1 = SettingsTab:addSection("Performance")
+local SettingsSection2 = SettingsTab:addSection("Controls")
+local SettingsSection3 = SettingsTab:addSection("Project")
+
+local MarkUpdateRateSlider = SettingsSection1:addSlider("Mark Update Rate", {
+    default = 0.016,
+    min = 0.016,
+    max = 0.1,
+    increment = 0.001,
+    suffix = "s"
+}, function(Value)
+    Mark.UpdateInterval = Value
+    Window:SetFlagSilent("MarkUpdateRate", Value)
+    AutoSave()
+end)
+
+local ScanIntervalSlider = SettingsSection1:addSlider("Scan Interval", {
+    default = 0.5,
+    min = 0.1,
+    max = 2,
+    increment = 0.1,
+    suffix = "s"
+}, function(Value)
+    Timers.ScanInterval = Value
+    Window:SetFlagSilent("ScanInterval", Value)
+    AutoSave()
+end)
+
+local ToggleESPKeybind = SettingsSection2:addKeybind("Toggle ESP Key", Enum.KeyCode.F, function()
+    ESP.Enabled = not ESP.Enabled
+    UpdateAllESPInstances()
+end, function(key)
+    Keys.Toggle = key.KeyCode
+    Window:SetFlagSilent("ESPKey", key.KeyCode)
+    AutoSave()
+end)
+
+SettingsSection3:addButton("Copy GitHub Link", function()
+    setclipboard("https://github.com/qwiix21/Cursed-Tank-Simulator-Script")
+    Window:Notify("Repository Link", "Link copied to clipboard!")
+end)
+
+SettingsSection3:addButton("Copy Discord Link", function()
+    setclipboard("https://discord.gg/gHg5g7eDC4")
+    Window:Notify("Discord Server", "Link copied to clipboard!")
+end)
 
 local function GetModelPosition(model)
     if model:IsA("BasePart") then
@@ -930,19 +894,6 @@ function ProcessChassis(chassis)
     end
 end
 
-Services.UserInput.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if Fly.IsRebinding or (tick() - Fly.LastRebindTime) < 0.5 then return end
-    if input.KeyCode == Keys.Toggle then
-        ESP.Enabled = not ESP.Enabled
-        UpdateAllESPInstances()
-    end
-    if input.KeyCode == Keys.Fly then
-        if Fly.Active then stopFly() else startFly() end
-    end
-end)
-
-
 workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
     Camera = Services.Workspace.CurrentCamera
 end)
@@ -962,7 +913,6 @@ Services.RunService.Heartbeat:Connect(function(dt)
     
     UpdateDistanceLabels()
 end)
-
 
 Services.RunService.RenderStepped:Connect(function(dt)
     Mark.TimeSinceUpdate += dt
@@ -1013,108 +963,6 @@ for _, child in ipairs(Services.Lighting:GetChildren()) do
     if child:IsA("Atmosphere") then WatchAtmosphere(child) end
 end
 
-local HACKS = {
-    Penetration = {
-        target = 9999, active = false,
-        names = {"Penetration", "Penetrate"},
-        patched = {}, origPatched = {}
-    },
-    Ricochet = {
-        target = 9999, active = false,
-        names = {"RicochetAngle"},
-        patched = {}, origPatched = {}
-    },
-    BulletGravity = {
-        target = 0, active = false,
-        names = {"BulletGravity"},
-        patched = {}, origPatched = {}
-    },
-    ShellSpeed = {
-        target = 9999, active = false,
-        names = {"ShellSpeed"},
-        patched = {}, origPatched = {}
-    },
-}
-
-local WeaponConnections = {}
-local ChassisDescendantConn = nil
-
-local function GetOwnChassis()
-    local vehicles = Services.Workspace:FindFirstChild("Vehicles")
-    if not vehicles then return nil end
-    return vehicles:FindFirstChild("Chassis" .. LocalPlayer.Name)
-end
-
-local function ForceValue(obj, hack)
-    if not hack.patched[obj] then
-        hack.patched[obj] = obj.Value
-    end
-    if obj:GetAttribute("Orig") ~= nil then
-        if not hack.origPatched[obj] then
-            hack.origPatched[obj] = obj:GetAttribute("Orig")
-        end
-        obj:SetAttribute("Orig", hack.target)
-    end
-    obj.Value = hack.target
-end
-
-local function WatchWeaponObject(obj)
-    for _, hack in pairs(HACKS) do
-        if hack.active then
-            for _, name in ipairs(hack.names) do
-                if obj.Name == name then
-                    ForceValue(obj, hack)
-                    WeaponConnections[obj] = obj:GetPropertyChangedSignal("Value"):Connect(function()
-                        if obj.Value ~= hack.target then
-                            ForceValue(obj, hack)
-                        end
-                    end)
-                    return
-                end
-            end
-        end
-    end
-end
-
-local function ClearWeaponConnections()
-    for _, conn in pairs(WeaponConnections) do conn:Disconnect() end
-    table.clear(WeaponConnections)
-end
-
-local function SetupWeaponChassis(chassis)
-    if ChassisDescendantConn then
-        ChassisDescendantConn:Disconnect()
-        ChassisDescendantConn = nil
-    end
-    ClearWeaponConnections()
-    for _, obj in ipairs(chassis:GetDescendants()) do
-        if obj:IsA("IntValue") or obj:IsA("NumberValue") then
-            WatchWeaponObject(obj)
-        end
-    end
-    ChassisDescendantConn = chassis.DescendantAdded:Connect(function(obj)
-        if obj:IsA("IntValue") or obj:IsA("NumberValue") then
-            WatchWeaponObject(obj)
-        end
-    end)
-end
-
-local function InitWeapon()
-    local chassis = GetOwnChassis()
-    if chassis then SetupWeaponChassis(chassis) end
-end
-
-Services.Workspace:WaitForChild("Vehicles").ChildAdded:Connect(function(obj)
-    if obj.Name == ("Chassis" .. LocalPlayer.Name) then
-        for _, hack in pairs(HACKS) do
-            hack.patched = {}
-            hack.origPatched = {}
-        end
-        task.wait(1)
-        SetupWeaponChassis(obj)
-    end
-end)
-
 Services.Workspace:WaitForChild("Vehicles").ChildRemoved:Connect(function(obj)
     if not obj:IsA("Model") then return end
     local toRemove = {}
@@ -1129,72 +977,54 @@ Services.Workspace:WaitForChild("Vehicles").ChildRemoved:Connect(function(obj)
     for _, t in ipairs(toRemove) do ESP.Instances[t] = nil end
 end)
 
-InitWeapon()
+Window:SelectPage(MainTab, true)
 
-WeaponTab:CreateSection("Penetration")
-WeaponTab:CreateToggle({
-    Name = "Enable Penetration Hack", CurrentValue = false, Flag = "HackPenetrationFlag",
-    Callback = function(Value)
-        HACKS.Penetration.active = Value
-        task.defer(InitWeapon)
-    end,
-})
-WeaponTab:CreateSlider({
-    Name = "Penetration Value", Range = {0, 9999}, Increment = 1,
-    CurrentValue = 9999, Flag = "PenetrationValueFlag",
-    Callback = function(Value)
-        HACKS.Penetration.target = Value
-        if HACKS.Penetration.active then task.defer(InitWeapon) end
-    end,
-})
+task.spawn(function()
+    task.wait(0.5)
+    Window:Notify({
+        title = "Info",
+        text = "Press K to hide interface",
+        type = "info"
+    })
+end)
 
-WeaponTab:CreateSection("Ricochet Angle")
-WeaponTab:CreateToggle({
-    Name = "Enable Ricochet Hack", CurrentValue = false, Flag = "HackRicochetFlag",
-    Callback = function(Value)
-        HACKS.Ricochet.active = Value
-        task.defer(InitWeapon)
-    end,
-})
-WeaponTab:CreateSlider({
-    Name = "Ricochet Value", Range = {0, 9999}, Increment = 1,
-    CurrentValue = 9999, Flag = "RicochetValueFlag",
-    Callback = function(Value)
-        HACKS.Ricochet.target = Value
-        if HACKS.Ricochet.active then task.defer(InitWeapon) end
-    end,
-})
 
-WeaponTab:CreateSection("Bullet Gravity")
-WeaponTab:CreateToggle({
-    Name = "Enable Bullet Gravity Hack", CurrentValue = false, Flag = "HackBulletGravityFlag",
-    Callback = function(Value)
-        HACKS.BulletGravity.active = Value
-        task.defer(InitWeapon)
-    end,
-})
-WeaponTab:CreateSlider({
-    Name = "Bullet Gravity Value", Range = {-500, 500}, Increment = 1,
-    CurrentValue = 0, Flag = "BulletGravityValueFlag",
-    Callback = function(Value)
-        HACKS.BulletGravity.target = Value
-        if HACKS.BulletGravity.active then task.defer(InitWeapon) end
-    end,
-})
+Window:RegisterFlag("EnableESP", true, function(v) EnableESPToggle:Set(v, true) end)
+Window:RegisterFlag("TeamCheck", false, function(v) TeamCheckToggle:Set(v, true) end)
+Window:RegisterFlag("ShowDistance", false, function(v) ShowDistanceToggle:Set(v, true) end)
+Window:RegisterFlag("EnableMark", false, function(v) EnableMarkToggle:Set(v, true) end)
+Window:RegisterFlag("MarkDistance", 1000, function(v) MarkDistanceSlider:Set(v, true) end)
+Window:RegisterFlag("MarkDecalID", "11552476728", function(v) MarkDecalIDInput:Set(v, true) end)
+Window:RegisterFlag("MarkOffsetY", 50, function(v) MarkOffsetYSlider:Set(v, true) end)
+Window:RegisterFlag("MarkSize", 25, function(v) MarkSizeSlider:Set(v, true) end)
 
-WeaponTab:CreateSection("Shell Speed")
-WeaponTab:CreateToggle({
-    Name = "Enable Shell Speed Hack", CurrentValue = false, Flag = "HackShellSpeedFlag",
-    Callback = function(Value)
-        HACKS.ShellSpeed.active = Value
-        task.defer(InitWeapon)
-    end,
-})
-WeaponTab:CreateSlider({
-    Name = "Shell Speed Value", Range = {0, 9999}, Increment = 1,
-    CurrentValue = 9999, Flag = "ShellSpeedValueFlag",
-    Callback = function(Value)
-        HACKS.ShellSpeed.target = Value
-        if HACKS.ShellSpeed.active then task.defer(InitWeapon) end
-    end,
-})
+Window:RegisterFlag("RemoveFog", false, function(v) RemoveFogToggle:Set(v, true) end)
+Window:RegisterFlag("PenView", false, function(v) PenViewToggle:Set(v, true) end)
+Window:RegisterFlag("HullColor", Color3.new(0.8, 0.2, 0.9), function(v) HullColorPicker:Set(v, true) end)
+Window:RegisterFlag("TurretColor", Color3.new(0.2, 0.9, 0.4), function(v) TurretColorPicker:Set(v, true) end)
+Window:RegisterFlag("FillTransparency", 50, function(v) FillTransparencySlider:Set(v, true) end)
+Window:RegisterFlag("OutlineTransparency", 20, function(v) OutlineTransparencySlider:Set(v, true) end)
+Window:RegisterFlag("EnableFill", true, function(v) EnableFillToggle:Set(v, true) end)
+Window:RegisterFlag("EnableOutline", true, function(v) EnableOutlineToggle:Set(v, true) end)
+
+Window:RegisterFlag("FlySpeed", 70, function(v) FlySpeedSlider:Set(v, true) end)
+Window:RegisterFlag("FlyKey", Enum.KeyCode.M, function(v)
+    ToggleFlyKeybind:Set(v)
+    Keys.Fly = v
+end)
+
+Window:RegisterFlag("MarkUpdateRate", 0.016, function(v) MarkUpdateRateSlider:Set(v, true) end)
+Window:RegisterFlag("ScanInterval", 0.5, function(v) ScanIntervalSlider:Set(v, true) end)
+Window:RegisterFlag("ESPKey", Enum.KeyCode.F, function(v)
+    ToggleESPKeybind:Set(v)
+    Keys.Toggle = v
+end)
+
+task.spawn(function()
+    task.wait(1)
+    loadingConfig = true
+    Window:LoadConfig(CONFIG_PATH)
+    loadingConfig = false
+end)
+
+Window:SelectPage(MainTab, true)
