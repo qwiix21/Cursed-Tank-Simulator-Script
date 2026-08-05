@@ -1,6 +1,6 @@
 print("Venom")
 
-local library = loadstring(game:HttpGet('https://raw.githubusercontent.com/qwiix21/Venyx-UI-Library/refs/heads/main/source.lua'))()
+local library = loadstring(game:HttpGet('https://raw.githubusercontent.com/qwiix21/Cursed-Tank-Simulator-Script/refs/heads/main/lib/lib'))()
 
 local Services = {
     RunService = game:GetService("RunService"),
