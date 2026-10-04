@@ -1,4 +1,4 @@
-print("Venom")
+print("eeeeee")
 
 local library = loadstring(game:HttpGet('https://raw.githubusercontent.com/qwiix21/Cursed-Tank-Simulator-Script/refs/heads/main/lib/lib'))()
 
@@ -14,7 +14,7 @@ local LocalPlayer = Services.Players.LocalPlayer
 
 local Keys = {
     Toggle = Enum.KeyCode.F,
-    Fly = Enum.KeyCode.M
+    Fly = Enum.KeyCode.N
 }
 
 local ESP = {
@@ -50,66 +50,122 @@ local Timers = {
 local Fly = {
     Active = false,
     Speed = 70,
-    Root = nil,
     IsRebinding = false,
-    LastRebindTime = 0
+    LastRebindTime = 0,
 }
+
+do
+    local bv = Instance.new("BodyVelocity")
+    bv.Name = "TankFlyVelocity"
+    bv.MaxForce = Vector3.new(500000, 500000, 500000)
+    Fly._bv = bv
+    
+    local bg = Instance.new("BodyGyro")
+    bg.Name = "TankFlyGyro"
+    bg.MaxTorque = Vector3.new(500000, 500000, 500000)
+    bg.D = 120
+    Fly._bg = bg
+end
+
+function Fly:_findRoot(model)
+    local candidates = {}
+    for _, part in ipairs(model:GetDescendants()) do
+        if part:IsA("BasePart") and not part:IsA("VehicleSeat") then
+            table.insert(candidates, part)
+        end
+    end
+    for _, part in ipairs(candidates) do
+        if part.Name:lower():find("hull") then return part end
+    end
+    if #candidates > 0 then
+        table.sort(candidates, function(a, b)
+            return (a.Size.X*a.Size.Y*a.Size.Z) > (b.Size.X*b.Size.Y*b.Size.Z)
+        end)
+        return candidates[1]
+    end
+    return nil
+end
+
+function Fly:_initRoot()
+    local vehicles = Services.Workspace:FindFirstChild("Vehicles")
+    if not vehicles then return end
+    local tankModel = vehicles:FindFirstChild("Chassis" .. LocalPlayer.Name)
+    if not tankModel then return end
+    self.Root = self:_findRoot(tankModel)
+end
+
+function Fly:Toggle()
+    if self.Active then
+        self.Active = false
+        self._bv.Parent = nil
+        self._bg.Parent = nil
+    else
+        self:_initRoot()
+        self.Active = true
+        if self.Root then
+            self._bv.Parent = self.Root
+            self._bg.Parent = self.Root
+        end
+    end
+end
+
+function Fly:Tick()
+    if not self.Active then return end
+    if not (self.Root and self.Root.Parent) then return end
+    local cam = Services.Workspace.CurrentCamera
+    local move = Vector3.zero
+    if Services.UserInput:IsKeyDown(Enum.KeyCode.W) then move += cam.CFrame.LookVector end
+    if Services.UserInput:IsKeyDown(Enum.KeyCode.S) then move -= cam.CFrame.LookVector end
+    if Services.UserInput:IsKeyDown(Enum.KeyCode.A) then move -= cam.CFrame.RightVector end
+    if Services.UserInput:IsKeyDown(Enum.KeyCode.D) then move += cam.CFrame.RightVector end
+    if Services.UserInput:IsKeyDown(Enum.KeyCode.Space) then move += Vector3.new(0,1,0) end
+    if Services.UserInput:IsKeyDown(Enum.KeyCode.LeftControl) then move -= Vector3.new(0,1,0) end
+    self._bv.Velocity = move.Magnitude > 0 and move.Unit * self.Speed or Vector3.zero
+    self._bg.CFrame = cam.CFrame
+end
 
 local Other = {
     RemoveFog = false,
     PenView = false
 }
 
-local PenView = {
-    UI = nil,
-    HeartbeatConnection = nil,
-    LastPart = nil,
-    LastChassisName = nil,
-    ArmorTypes = {
-        "Structural Steel", "RHA", "HHRA", "CHA", "NERA", "Internal RHA", "Internal HHRA",
-        "Internal CHA", "Composite Screen", "Rubber-fabric Screen", "Internal Aluminium",
-        "Aluminium", "Aluminium Alloy", "Internal Aluminium Alloy", "Internal Structural Steel",
-        "ERA", "Wood", "Armour"
-    }
+local ArmorTypes = {
+    "Structural Steel", "RHA", "HHRA", "CHA", "NERA", "Internal RHA", "Internal HHRA",
+    "Internal CHA", "Composite Screen", "Rubber-fabric Screen", "Internal Aluminium",
+    "Aluminium", "Aluminium Alloy", "Internal Aluminium Alloy", "Internal Structural Steel",
+    "ERA", "Wood", "Armour"
 }
 
-local Camera = Services.Workspace.CurrentCamera
+local PenView = {}
 
-local function PenView_CreateUI()
+function PenView:_createUI()
     for _, v in ipairs(LocalPlayer.PlayerGui:GetChildren()) do
         if v.Name == "PenViewport" then v:Destroy() end
     end
-    
     local sg = Instance.new("ScreenGui")
     sg.ResetOnSpawn = false
     sg.IgnoreGuiInset = true
     sg.DisplayOrder = -100
     sg.Name = "PenViewport"
     sg.Parent = LocalPlayer.PlayerGui
-    
     local vp = Instance.new("ViewportFrame", sg)
     vp.Size = UDim2.new(1, 0, 1, 0)
     vp.BackgroundTransparency = 1
     vp.ImageTransparency = 0.25
     vp.ZIndex = -100
-    
     local cam = Instance.new("Camera")
     vp.CurrentCamera = cam
     cam.CameraType = Enum.CameraType.Scriptable
-    
-    return {viewport = vp, vpcam = cam}
+    self.UI = {viewport = vp, vpcam = cam}
 end
 
-local function PenView_GetPenetration()
+function PenView:_getPenetration()
     local vehicles = Services.Workspace:FindFirstChild("Vehicles")
     if not vehicles then return 200 end
-    
     local chassis = vehicles:FindFirstChild("Chassis" .. LocalPlayer.Name)
     if not chassis then return 200 end
-    
     local gunFolder = chassis:FindFirstChild("Gun")
     if not gunFolder then return 200 end
-    
     for _, gunWeapon in ipairs(gunFolder:GetChildren()) do
         local config = gunWeapon:FindFirstChild("Config")
         if config then
@@ -122,11 +178,10 @@ local function PenView_GetPenetration()
             end
         end
     end
-    
     return 200
 end
 
-local function PenView_FindGunBrick(chassis)
+function PenView:_findGunBrick(chassis)
     local gun = chassis:FindFirstChild("Gun", true)
     if not gun then return nil end
     for _, obj in ipairs(gun:GetDescendants()) do
@@ -135,12 +190,11 @@ local function PenView_FindGunBrick(chassis)
     return nil
 end
 
-local function PenView_GetArmorThickness(hitPart, hitPos, direction, hitNormal)
+function PenView:_getArmorThickness(hitPart, hitPos, direction, hitNormal)
     if not hitPart or not hitPos then return 0 end
     local params = RaycastParams.new()
     params.FilterType = Enum.RaycastFilterType.Whitelist
     params.FilterDescendantsInstances = {hitPart}
-    
     local result = Services.Workspace:Raycast(hitPos + direction * 4, -direction * 50, params)
     if result and result.Instance == hitPart then
         local thickness = (hitPos - result.Position).Magnitude / 0.00357
@@ -153,40 +207,33 @@ local function PenView_GetArmorThickness(hitPart, hitPos, direction, hitNormal)
     return 0
 end
 
-local function PenView_UpdateViewport(ui, part, thickness, pen)
-    if not ui or not ui.viewport or not ui.viewport.Parent then
-        return
-    end
-    
+function PenView:_updateViewport(part, thickness, pen)
+    local ui = self.UI
+    if not ui or not ui.viewport or not ui.viewport.Parent then return end
+
     if not part or not part.Parent then
-        if ui.viewport then ui.viewport:ClearAllChildren() end
-        PenView.LastPart = nil
+        ui.viewport:ClearAllChildren()
+        self.LastPart = nil
         return
     end
-    
+
     local mesh = ui.viewport:FindFirstChildWhichIsA("BasePart")
-    
-    if PenView.LastPart ~= part or not mesh then
-        PenView.LastPart = part
+    if self.LastPart ~= part or not mesh then
+        self.LastPart = part
         ui.viewport:ClearAllChildren()
-        
         local clone = part:Clone()
         clone.Transparency = 0.3
         clone.CanCollide = false
         clone.Anchored = true
         clone.Parent = ui.viewport
-        
         mesh = clone
     end
     
     if not mesh then return end
-    
-    local ok = pcall(function()
-        mesh.CFrame = part.CFrame
-    end)
+    local ok = pcall(function() mesh.CFrame = part.CFrame end)
     if not ok then
         ui.viewport:ClearAllChildren()
-        PenView.LastPart = nil
+        self.LastPart = nil
         return
     end
     
@@ -207,42 +254,43 @@ local function PenView_UpdateViewport(ui, part, thickness, pen)
     mesh.Color = color
 end
 
-local function PenView_StartHeartbeat(ui)
-    if PenView.HeartbeatConnection then PenView.HeartbeatConnection:Disconnect() end
-    PenView.LastPart = nil
+function PenView:_startHeartbeat()
+    if self._heartbeat then self._heartbeat:Disconnect() end
+    self.LastPart = nil
     
-    PenView.HeartbeatConnection = Services.RunService.Heartbeat:Connect(function()
+    self._heartbeat = Services.RunService.Heartbeat:Connect(function()
+        local ui = self.UI
         if not ui or not ui.viewport or not ui.viewport.Parent then
-            if PenView.HeartbeatConnection then 
-                PenView.HeartbeatConnection:Disconnect()
-                PenView.HeartbeatConnection = nil
-            end
+            self._heartbeat:Disconnect()
+            self._heartbeat = nil
             return
         end
         
         local vehicles = Services.Workspace:FindFirstChild("Vehicles")
-        if not vehicles or not ui then
-            if ui and ui.viewport then ui.viewport:ClearAllChildren() end
+        if not vehicles then
+            ui.viewport:ClearAllChildren()
             return
         end
         
         local chassis = vehicles:FindFirstChild("Chassis" .. LocalPlayer.Name)
         if not chassis then
-            if ui.viewport then ui.viewport:ClearAllChildren() end
-            PenView.LastPart = nil
-            PenView.LastChassisName = nil
+            ui.viewport:ClearAllChildren()
+            self.LastPart = nil
+            self.LastChassisName = nil
+            self.GunBrick = nil
             return
         end
         
-        if chassis.Name ~= PenView.LastChassisName then
-            PenView.LastChassisName = chassis.Name
-            PenView.LastPart = nil
+        if chassis.Name ~= self.LastChassisName then
+            self.LastChassisName = chassis.Name
+            self.LastPart = nil
         end
         
-        local gunBrick = PenView_FindGunBrick(chassis)
+        local gunBrick = self:_findGunBrick(chassis)
+        self.GunBrick = gunBrick
         if not gunBrick then return end
         
-        local pen = PenView_GetPenetration()
+        local pen = self:_getPenetration()
         local origin = gunBrick.Position + gunBrick.CFrame.LookVector * 2
         local dir = gunBrick.CFrame.LookVector
         
@@ -253,100 +301,69 @@ local function PenView_StartHeartbeat(ui)
         rayParams.CollisionGroup = "Default"
         
         local result = Services.Workspace:Raycast(origin, dir * 3000, rayParams)
-        
-        if result and result.Instance and table.find(PenView.ArmorTypes, result.Instance.Name) and result.Instance.CanCollide then
+        if result and result.Instance
+            and table.find(ArmorTypes, result.Instance.Name)
+            and result.Instance.CanCollide
+        then
             if not ui.viewport:FindFirstChildWhichIsA("BasePart") then
-                PenView.LastPart = nil
+                self.LastPart = nil
             end
-            
-            local thickness = PenView_GetArmorThickness(result.Instance, result.Position, dir, result.Normal)
-            PenView_UpdateViewport(ui, result.Instance, thickness, pen)
+            local thickness = self:_getArmorThickness(result.Instance, result.Position, dir, result.Normal)
+            self:_updateViewport(result.Instance, thickness, pen)
         else
-            if ui.viewport then ui.viewport:ClearAllChildren() end
-            PenView.LastPart = nil
+            ui.viewport:ClearAllChildren()
+            self.LastPart = nil
         end
     end)
 end
 
-local function PenView_Reset()
-    if PenView.HeartbeatConnection then
-        PenView.HeartbeatConnection:Disconnect()
-        PenView.HeartbeatConnection = nil
+function PenView:_reset()
+    if self._heartbeat then
+        self._heartbeat:Disconnect()
+        self._heartbeat = nil
     end
-    PenView.LastPart = nil
-    PenView.LastChassisName = nil
-
-    PenView.UI = PenView_CreateUI()
-    PenView_StartHeartbeat(PenView.UI)
+    self.LastPart  = nil
+    self.LastChassisName = nil
+    self:_createUI()
+    self:_startHeartbeat()
 end
 
-local function PenView_Monitor()
+function PenView:Toggle(enabled)
+    if self._heartbeat then self._heartbeat:Disconnect(); self._heartbeat = nil end
+    if self._vehiclesAdded then self._vehiclesAdded:Disconnect(); self._vehiclesAdded = nil end
+    if self._vehiclesRemoved then self._vehiclesRemoved:Disconnect(); self._vehiclesRemoved = nil end
+    local vp = LocalPlayer.PlayerGui:FindFirstChild("PenViewport")
+    if vp then vp:Destroy() end
+    self.UI = nil; self.LastPart = nil; self.LastChassisName = nil
+    
+    if not enabled then return end
+    
+    self:_reset()
+    
     task.spawn(function()
         while Other.PenView do
             local vehicles = Services.Workspace:FindFirstChild("Vehicles")
             local chassis = vehicles and vehicles:FindFirstChild("Chassis" .. LocalPlayer.Name)
-            
-            if chassis and not PenView.HeartbeatConnection then
-                PenView_Reset()
-            elseif not chassis and PenView.HeartbeatConnection then
-                if PenView.UI and PenView.UI.viewport then
-                    PenView.UI.viewport:ClearAllChildren()
-                end
+            if chassis and not self._heartbeat then
+                self:_reset()
+            elseif not chassis and self._heartbeat then
+                if self.UI and self.UI.viewport then self.UI.viewport:ClearAllChildren() end
             end
             task.wait(0.5)
         end
     end)
-end
-
-local PenView_VehiclesAddedConn
-local PenView_VehiclesRemovedConn
-
-local function PenView_Start()
-    PenView_Reset()
-    PenView_Monitor()
     
     local vehiclesFolder = Services.Workspace:FindFirstChild("Vehicles")
     if vehiclesFolder then
-        PenView_VehiclesAddedConn = vehiclesFolder.ChildAdded:Connect(function(child)
-            if child.Name == "Vehicles" then
-                task.wait(0.8)
-                PenView_Reset()
-            end
+        self._vehiclesAdded = vehiclesFolder.ChildAdded:Connect(function(child)
+            if child.Name == "Vehicles" then task.wait(0.8); self:_reset() end
         end)
-        
-        PenView_VehiclesRemovedConn = vehiclesFolder.ChildRemoved:Connect(function(child)
+        self._vehiclesRemoved = vehiclesFolder.ChildRemoved:Connect(function(child)
             if child.Name == "Vehicles" then
-                if PenView.UI and PenView.UI.viewport then
-                    PenView.UI.viewport:ClearAllChildren()
-                end
+                if self.UI and self.UI.viewport then self.UI.viewport:ClearAllChildren() end
             end
         end)
     end
-end
-
-local function PenView_Stop()
-    if PenView.HeartbeatConnection then
-        PenView.HeartbeatConnection:Disconnect()
-        PenView.HeartbeatConnection = nil
-    end
-    
-    if PenView_VehiclesAddedConn then
-        PenView_VehiclesAddedConn:Disconnect()
-        PenView_VehiclesAddedConn = nil
-    end
-    
-    if PenView_VehiclesRemovedConn then
-        PenView_VehiclesRemovedConn:Disconnect()
-        PenView_VehiclesRemovedConn = nil
-    end
-    
-    local pg = LocalPlayer.PlayerGui
-    local vp = pg:FindFirstChild("PenViewport")
-    if vp then vp:Destroy() end
-    
-    PenView.UI = nil
-    PenView.LastPart = nil
-    PenView.LastChassisName = nil
 end
 
 local ESPFolder = Instance.new("Folder")
@@ -365,59 +382,6 @@ local function parseKeyCode(str)
         if item.Name == name then return item end
     end
     return nil
-end
-
-local bv = Instance.new("BodyVelocity")
-bv.Name = "TankFlyVelocity"
-bv.MaxForce = Vector3.new(500000, 500000, 500000)
-
-local bg = Instance.new("BodyGyro")
-bg.Name = "TankFlyGyro"
-bg.MaxTorque = Vector3.new(500000, 500000, 500000)
-bg.D = 120
-
-local function findFlyPart(model)
-    local candidates = {}
-    for _, part in ipairs(model:GetDescendants()) do
-        if part:IsA("BasePart") and not part:IsA("VehicleSeat") then
-            table.insert(candidates, part)
-        end
-    end
-    for _, part in ipairs(candidates) do
-        if part.Name:lower():find("hull") then return part end
-    end
-    if #candidates > 0 then
-        table.sort(candidates, function(a, b)
-            return (a.Size.X*a.Size.Y*a.Size.Z) > (b.Size.X*b.Size.Y*b.Size.Z)
-        end)
-        return candidates[1]
-    end
-    return nil
-end
-
-local function initFlyRoot()
-    local vehicles = workspace:FindFirstChild("Vehicles")
-    if not vehicles then return end
-    local tankModel = vehicles:FindFirstChild("Chassis" .. LocalPlayer.Name)
-    if not tankModel then return end
-    Fly.Root = findFlyPart(tankModel)
-end
-
-local function startFly()
-    if Fly.Active then return end
-    initFlyRoot()
-    Fly.Active = true
-    if Fly.Root then
-        bv.Parent = Fly.Root
-        bg.Parent = Fly.Root
-    end
-end
-
-local function stopFly()
-    if not Fly.Active then return end
-    Fly.Active = false
-    bv.Parent = nil
-    bg.Parent = nil
 end
 
 local function UpdateESPInstance(espData)
@@ -594,11 +558,7 @@ end)
 
 local PenViewToggle = VisualSection2:addToggle("Enable Penetration View", false, function(Value)
     Other.PenView = Value
-    if Value then
-        PenView_Start()
-    else
-        PenView_Stop()
-    end
+    PenView:Toggle(Value)
     Window:SetFlagSilent("PenView", Value)
     AutoSave()
 end)
@@ -647,13 +607,8 @@ local FlySection1 = FlyTab:addSection("Flight Control")
 local FlySection2 = FlyTab:addSection("Keybind")
 
 FlySection1:addButton("Toggle Fly", function()
-    if Fly.Active then
-        stopFly()
-        Window:Notify("Fly", "Flight disabled")
-    else
-        startFly()
-        Window:Notify("Fly", "Flight enabled")
-    end
+    Fly:Toggle()
+    Window:Notify("Fly", Fly.Active and "Flight enabled" or "Flight disabled")
 end)
 
 local FlySpeedSlider = FlySection1:addSlider("Fly Speed", 70, 10, 300, function(Value)
@@ -662,8 +617,8 @@ local FlySpeedSlider = FlySection1:addSlider("Fly Speed", 70, 10, 300, function(
     AutoSave()
 end)
 
-local ToggleFlyKeybind = FlySection2:addKeybind("Toggle Fly Key", Enum.KeyCode.M, function()
-    if Fly.Active then stopFly() else startFly() end
+local ToggleFlyKeybind = FlySection2:addKeybind("Toggle Fly Key", Enum.KeyCode.N, function()
+    Fly:Toggle()
 end, function(key)
     Keys.Fly = key.KeyCode
     Window:SetFlagSilent("FlyKey", key.KeyCode)
@@ -837,13 +792,16 @@ local function UpdateMarkPositions()
 end
 
 local function UpdateDistanceLabels()
-    if not Camera then return end
-    local camPos = Camera.CFrame.Position
+    local origin = (PenView.GunBrick and PenView.GunBrick.Parent)
+        and PenView.GunBrick.Position
+        or  (Camera and Camera.CFrame.Position)
+    if not origin then return end
+
     for _, espData in pairs(ESP.Instances) do
         if espData.IsHull and espData.DistanceLabel and espData.Target and espData.Target.Parent then
             local ok, pos = pcall(GetModelPosition, espData.Target)
             if ok then
-                local dist = math.floor((pos - camPos).Magnitude / 3)
+                local dist = math.floor((pos - origin).Magnitude / 3)
                 espData.DistanceLabel.Text = dist .. " m"
             end
         end
@@ -875,7 +833,7 @@ function ProcessChassis(chassis)
         local targetPlayer = Services.Players:FindFirstChild(playerName)
         if not targetPlayer then return end
         
-        local localTeam  = LocalPlayer.Team
+        local localTeam = LocalPlayer.Team
         local targetTeam = targetPlayer.Team
         if localTeam and targetTeam and localTeam == targetTeam then return end
     end
@@ -921,20 +879,7 @@ Services.RunService.RenderStepped:Connect(function(dt)
         UpdateMarkPositions()
     end
     
-    if Fly.Active then
-        if Fly.Root and Fly.Root.Parent then
-            local cam  = Services.Workspace.CurrentCamera
-            local move = Vector3.zero
-            if Services.UserInput:IsKeyDown(Enum.KeyCode.W) then move += cam.CFrame.LookVector end
-            if Services.UserInput:IsKeyDown(Enum.KeyCode.S) then move -= cam.CFrame.LookVector end
-            if Services.UserInput:IsKeyDown(Enum.KeyCode.A) then move -= cam.CFrame.RightVector end
-            if Services.UserInput:IsKeyDown(Enum.KeyCode.D) then move += cam.CFrame.RightVector end
-            if Services.UserInput:IsKeyDown(Enum.KeyCode.Space) then move += Vector3.new(0,1,0) end
-            if Services.UserInput:IsKeyDown(Enum.KeyCode.LeftControl) then move -= Vector3.new(0,1,0) end
-            bv.Velocity = move.Magnitude > 0 and move.Unit * Fly.Speed or Vector3.zero
-            bg.CFrame   = cam.CFrame
-        end
-    end
+    Fly:Tick()
 end)
 
 ScanVehicles()
