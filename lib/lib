@@ -7,6 +7,8 @@ local tween = game:GetService("TweenService")
 local tweeninfo = TweenInfo.new
 
 local utility = {}
+local touchEnabled = input.TouchEnabled
+local pointer = Vector2.new(mouse.X, mouse.Y)
 
 local objects = {}
 local themes = {
@@ -48,6 +50,10 @@ do
 		tween:Create(instance, tweeninfo(duration, ...), properties):Play()
 	end
 	
+	function utility:Pointer()
+		return pointer
+	end
+
 	function utility:Wait()
 		run.Heartbeat:Wait()
 		return true
@@ -174,6 +180,15 @@ do
 	
 	function utility:InitializeKeybind()
 		self.keybinds = {}
+
+		local function track(obj)
+			local t = obj.UserInputType
+			if t == Enum.UserInputType.MouseMovement or t == Enum.UserInputType.Touch or t == Enum.UserInputType.MouseButton1 then
+				pointer = Vector2.new(obj.Position.X, obj.Position.Y)
+			end
+		end
+		input.InputChanged:Connect(track)
+		input.InputBegan:Connect(track)
 		self.ended = {}
 		
 		input.InputBegan:Connect(function(key)
@@ -185,7 +200,7 @@ do
 		end)
 		
 		input.InputEnded:Connect(function(key)
-			if key.UserInputType == Enum.UserInputType.MouseButton1 then
+			if key.UserInputType == Enum.UserInputType.MouseButton1 or key.UserInputType == Enum.UserInputType.Touch then
 				for i, callback in pairs(self.ended) do
 					callback()
 				end
@@ -230,10 +245,14 @@ do
 		local dragInput, mousePos, framePos
 		
 		frame.InputBegan:Connect(function(input)
-			if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 				dragging = true
 				mousePos = input.Position
 				framePos = parent.Position
+
+				if input.UserInputType == Enum.UserInputType.Touch then
+					dragInput = input
+				end
 				
 				input.Changed:Connect(function()
 					if input.UserInputState == Enum.UserInputState.End then
@@ -244,7 +263,7 @@ do
 		end)
 		
 		frame.InputChanged:Connect(function(input)
-			if input.UserInputType == Enum.UserInputType.MouseMovement then
+			if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
 				dragInput = input
 			end
 		end)
@@ -280,6 +299,7 @@ do
 		}, {
 			utility:Create("ImageLabel", {
 				Name = "Main",
+				Active = true,
 				BackgroundTransparency = 1,
 				Position = UDim2.new(0.25, 0, 0.052435593, 0),
 				Size = UDim2.new(0, 511, 0, 428),
@@ -357,13 +377,169 @@ do
 		utility:InitializeKeybind()
 		utility:DraggingEnabled(container.Main.TopBar, container.Main)
 		
-		return setmetatable({
+		local self = setmetatable({
 			container = container,
 			pagesContainer = container.Main.Pages.Pages_Container,
 			pages = {},
 			flags = {},
-			flagCbs = {}
+			flagCbs = {},
+			size = Vector2.new(511, 428)
 		}, library)
+
+		self:_fit(true)
+		container:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+			self:_fit()
+		end)
+
+		container.DisplayOrder = 100
+
+		local topbar = container.Main.TopBar
+
+		local minimize = utility:Create("TextButton", {
+			Name = "Minimize",
+			Parent = topbar,
+			AnchorPoint = Vector2.new(1, 0.5),
+			BackgroundTransparency = 1,
+			Position = UDim2.new(1, -6, 0, 19),
+			Size = UDim2.fromOffset(40, 32),
+			ZIndex = 7,
+			AutoButtonColor = false,
+			Font = Enum.Font.GothamBold,
+			Text = "-",
+			TextColor3 = themes.TextColor,
+			TextSize = 22
+		})
+		self.minimizeButton = minimize
+		minimize.Activated:Connect(function()
+			self:minimize()
+		end)
+
+		local isMobile = input.TouchEnabled and not input.KeyboardEnabled
+
+		if isMobile then
+			local menu = utility:Create("TextButton", {
+				Name = "MobileToggle",
+				Parent = container,
+				AnchorPoint = Vector2.new(0.5, 0),
+				Position = UDim2.new(0.5, 0, 0, 6),
+				Size = UDim2.fromOffset(40, 40),
+				BackgroundColor3 = themes.Accent,
+				BackgroundTransparency = 0.05,
+				AutoButtonColor = false,
+				Text = "",
+				ZIndex = 100
+			}, {
+				utility:Create("UICorner", {CornerRadius = UDim.new(1, 0)}),
+				utility:Create("UIStroke", {Color = themes.TextColor, Transparency = 0.6, Thickness = 1}),
+				utility:Create("Frame", {
+					AnchorPoint = Vector2.new(0.5, 0.5),
+					BackgroundColor3 = themes.TextColor,
+					BorderSizePixel = 0,
+					Position = UDim2.new(0.5, 0, 0.5, -6),
+					Size = UDim2.fromOffset(18, 2),
+					ZIndex = 101
+				}),
+				utility:Create("Frame", {
+					AnchorPoint = Vector2.new(0.5, 0.5),
+					BackgroundColor3 = themes.TextColor,
+					BorderSizePixel = 0,
+					Position = UDim2.new(0.5, 0, 0.5, 0),
+					Size = UDim2.fromOffset(18, 2),
+					ZIndex = 101
+				}),
+				utility:Create("Frame", {
+					AnchorPoint = Vector2.new(0.5, 0.5),
+					BackgroundColor3 = themes.TextColor,
+					BorderSizePixel = 0,
+					Position = UDim2.new(0.5, 0, 0.5, 6),
+					Size = UDim2.fromOffset(18, 2),
+					ZIndex = 101
+				})
+			})
+
+			-- своё перетаскивание кнопки: палец двигает её в любое место экрана
+			local dragging, moved = false, false
+			local startPointer, startPos
+
+			menu.InputBegan:Connect(function(obj)
+				if obj.UserInputType == Enum.UserInputType.Touch or obj.UserInputType == Enum.UserInputType.MouseButton1 then
+					dragging, moved = true, false
+					startPointer = Vector2.new(obj.Position.X, obj.Position.Y)
+					startPos = menu.AbsolutePosition
+
+					obj.Changed:Connect(function()
+						if obj.UserInputState == Enum.UserInputState.End then
+							dragging = false
+						end
+					end)
+				end
+			end)
+
+			input.InputChanged:Connect(function(obj)
+				if not dragging then
+					return
+				end
+
+				if obj.UserInputType == Enum.UserInputType.Touch or obj.UserInputType == Enum.UserInputType.MouseMovement then
+					local delta = Vector2.new(obj.Position.X, obj.Position.Y) - startPointer
+
+					if not moved and delta.Magnitude < 8 then
+						return
+					end
+					moved = true
+
+					local area = container.AbsoluteSize
+					local size = menu.AbsoluteSize
+					local x = math.clamp(startPos.X + delta.X, 0, math.max(area.X - size.X, 0))
+					local y = math.clamp(startPos.Y + delta.Y, 0, math.max(area.Y - size.Y, 0))
+
+					menu.AnchorPoint = Vector2.new(0, 0)
+					menu.Position = UDim2.fromOffset(x, y)
+				end
+			end)
+
+			menu.Activated:Connect(function()
+				if moved then
+					moved = false
+					return
+				end
+				self:toggle()
+			end)
+		end
+
+		return self
+	end
+
+	function library:_fit(recenter)
+		local area = self.container.AbsoluteSize
+		if area.X == 0 or area.Y == 0 then
+			local cam = workspace.CurrentCamera
+			area = cam and cam.ViewportSize or Vector2.new(1280, 720)
+		end
+
+		local w = math.clamp(area.X - 16, 280, 511)
+		local h = math.clamp(area.Y - 16, 220, 428)
+		self.size = Vector2.new(w, h)
+
+		if self.position or self.toggling then
+			return
+		end
+
+		local main = self.container.Main
+		main.Size = UDim2.fromOffset(w, self.minimized and 38 or h)
+
+		local x, y
+		if recenter and (touchEnabled or area.X < 700 or area.Y < 500) then
+			x, y = (area.X - w) / 2, (area.Y - h) / 2
+		else
+			local p = main.Position
+			x = p.X.Scale * area.X + p.X.Offset
+			y = p.Y.Scale * area.Y + p.Y.Offset
+		end
+
+		x = math.clamp(x, 0, math.max(area.X - w, 0))
+		y = math.clamp(y, 0, math.max(area.Y - h, 0))
+		main.Position = UDim2.fromOffset(x, y)
 	end
 	
 	function page.new(library, title, icon)
@@ -526,6 +702,29 @@ do
 		end
 	end
 	
+	function library:minimize()
+		if self.toggling or self.position then
+			return
+		end
+
+		self.minimized = not self.minimized
+		self.minimizeButton.Text = self.minimized and "+" or "-"
+
+		local main = self.container.Main
+
+		if self.minimized then
+			main.ClipsDescendants = true
+			utility:Tween(main, {Size = UDim2.fromOffset(self.size.X, 38)}, 0.2)
+		else
+			utility:Tween(main, {Size = UDim2.fromOffset(self.size.X, self.size.Y)}, 0.2)
+			task.delay(0.2, function()
+				if not self.minimized and not self.position then
+					main.ClipsDescendants = false
+				end
+			end)
+		end
+	end
+
 	function library:toggle()
 		
 		if self.toggling then
@@ -539,7 +738,7 @@ do
 		
 		if self.position then
 			utility:Tween(container, {
-				Size = UDim2.new(0, 511, 0, 428),
+				Size = UDim2.new(0, self.size.X, 0, self.minimized and 38 or self.size.Y),
 				Position = self.position
 			}, 0.2)
 			task.wait(0.2)
@@ -547,7 +746,7 @@ do
 			utility:Tween(topbar, {Size = UDim2.new(1, 0, 0, 38)}, 0.2)
 			task.wait(0.2)
 			
-			container.ClipsDescendants = false
+			container.ClipsDescendants = self.minimized == true
 			self.position = nil
 		else
 			self.position = container.Position
@@ -557,8 +756,8 @@ do
 			task.wait(0.2)
 			
 			utility:Tween(container, {
-				Size = UDim2.new(0, 511, 0, 0),
-				Position = self.position + UDim2.new(0, 0, 0, 428)
+				Size = UDim2.new(0, self.size.X, 0, 0),
+				Position = self.position + UDim2.new(0, 0, 0, self.minimized and 38 or self.size.Y)
 			}, 0.2)
 			task.wait(0.2)
 		end
@@ -674,6 +873,13 @@ do
 		})
 		
 		utility:DraggingEnabled(notification)
+
+		if touchEnabled then
+			notification.Accept.Size = UDim2.fromOffset(24, 24)
+			notification.Accept.Position = UDim2.new(1, -34, 0, 4)
+			notification.Decline.Size = UDim2.fromOffset(24, 24)
+			notification.Decline.Position = UDim2.new(1, -34, 1, -28)
+		end
 		
 		title = title or "Notification"
 		text = text or ""
@@ -684,6 +890,10 @@ do
 		local padding = 10
 		local textSize = game:GetService("TextService"):GetTextSize(text, 12, Enum.Font.Gotham, Vector2.new(math.huge, 16))
 		
+		textSize = Vector2.new(math.min(textSize.X, math.max(self.container.AbsoluteSize.X - 90, 100)), textSize.Y)
+		notification.Text.TextTruncate = Enum.TextTruncate.AtEnd
+		notification.Title.TextTruncate = Enum.TextTruncate.AtEnd
+
 		notification.Position = library.lastNotification or UDim2.new(0, padding, 1, -(notification.AbsoluteSize.Y + padding))
 		notification.Size = UDim2.new(0, 0, 0, 60)
 		
@@ -699,7 +909,7 @@ do
 		
 		if not callback then
 			notification.Accept.Visible = false
-			notification.Decline.Position = UDim2.new(1, -26, 0, 8)
+			notification.Decline.Position = touchEnabled and UDim2.new(1, -34, 0, 4) or UDim2.new(1, -26, 0, 8)
 		end
 		
 		utility:Tween(notification, {Size = UDim2.new(0, textSize.X + 70, 0, 60)}, 0.2)
@@ -1266,7 +1476,7 @@ do
 				return self:updateKeybind(keybind)
 			end
 			
-			if text.Text == "None" then 
+			if text.Text == "None" and (input.KeyboardEnabled or not touchEnabled) then 
 				text.Text = "..."
 				
 				local key = utility:KeyPressed()
@@ -1608,6 +1818,11 @@ do
 		})
 		
 		utility:DraggingEnabled(tab)
+
+		if touchEnabled then
+			tab.Close.Size = UDim2.fromOffset(24, 24)
+			tab.Close.Position = UDim2.new(1, -32, 0, 4)
+		end
 		table.insert(self.modules, colorpicker)
 		self:Resize(true)
 		
@@ -1702,10 +1917,11 @@ do
 			
 			while draggingCanvas do
 			
-				local x, y = mouse.X, mouse.Y
-				
-				sat = math.clamp((x - canvasPosition.X) / canvasSize.X, 0, 1)
-				brightness = 1 - math.clamp((y - canvasPosition.Y) / canvasSize.Y, 0, 1)
+				local pt = utility:Pointer()
+				local cPos, cSize = canvas.AbsolutePosition, canvas.AbsoluteSize
+
+				sat = math.clamp((pt.X - cPos.X) / cSize.X, 0, 1)
+				brightness = 1 - math.clamp((pt.Y - cPos.Y) / cSize.Y, 0, 1)
 				
 				color3 = Color3.fromHSV(hue, sat, brightness)
 				
@@ -1726,7 +1942,7 @@ do
 			
 			while draggingColor do
 				
-				hue = 1 - math.clamp(1 - ((mouse.X - colorPosition.X) / colorSize.X), 0, 1)
+				hue = math.clamp((utility:Pointer().X - color.AbsolutePosition.X) / color.AbsoluteSize.X, 0, 1)
 				color3 = Color3.fromHSV(hue, sat, brightness)
 				
 				for i, prop in pairs({"r", "g", "b"}) do
@@ -1788,7 +2004,10 @@ do
 				tab.Visible = true
 				tab.Size = UDim2.new(0, 0, 0, 0)
 				
-				tab.Position = UDim2.new(0, x1 + x2 + px, 0, py)
+				local area = self.page.library.container.AbsoluteSize
+				local cx = math.clamp(x1 + x2 + px, 81, math.max(area.X - 81, 81))
+				local cy = math.clamp(py, 85, math.max(area.Y - 85, 85))
+				tab.Position = UDim2.new(0, cx, 0, cy)
 				utility:Tween(tab, {Size = UDim2.new(0, 162, 0, 169)}, 0.2)
 				
 				task.wait(0.2)
@@ -1980,6 +2199,7 @@ do
 		end)
 		
 		slider.MouseButton1Down:Connect(function()
+			self.page.container.ScrollingEnabled = false
 			dragging = true
 			
 			while dragging do
@@ -1991,6 +2211,7 @@ do
 				utility:Wait()
 			end
 			
+			self.page.container.ScrollingEnabled = true
 			task.wait(0.5)
 			utility:Tween(circle, {ImageTransparency = 1}, 0.2)
 		end)
@@ -2534,7 +2755,7 @@ do
 		suffix = suffix or ""
 		
 		local bar = slider.Slider.Bar
-		local percent = (mouse.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X
+		local percent = (utility:Pointer().X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X
 		
 		if value then
 			percent = (value - min) / (max - min)
